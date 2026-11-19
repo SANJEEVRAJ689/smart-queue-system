@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.Tab?>
+<?import javafx.scene.control.TabPane?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.RowConstraints?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane stylesheets="@../css/styles.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.smartqueue.controller.KioskController">
+    <!-- Top Header -->
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="12" styleClass="app-header">
+            <VBox spacing="2">
+                <Label styleClass="app-title" text="Self-Service Token Booking Kiosk" />
+                <Label styleClass="app-subtitle" text="Book a digital token • Get real-time wait estimation • Check live token status" />
+            </VBox>
+        </HBox>
+    </top>
+
+    <!-- Center TabPane -->
+    <center>
+        <TabPane tabClosingPolicy="UNAVAILABLE">
+            <!-- TAB 1: BOOK DIGITAL TOKEN -->
+            <Tab text="🎟️ Book Digital Token">
+                <StackPane>
+                    <padding>
+                        <Insets bottom="24" left="28" right="28" top="20" />
+                    </padding>
+
+                    <!-- 1. Booking Form -->
+                    <VBox fx:id="boxBookingForm" maxWidth="640" spacing="18" styleClass="card">
+                        <Label styleClass="card-header" text="Book Your Service Desk Token" />
+
+                        <VBox spacing="6">
+                            <Label style="-fx-font-weight: bold;" text="1. Select Service / Department *" />
+                            <ComboBox fx:id="cmbServices" maxWidth="Infinity" promptText="Choose Department..." />
+                        </VBox>
+
+                        <!-- Dynamic Live Waiting Preview -->
+                        <HBox spacing="16" style="-fx-background-color: #f1f5f9; -fx-padding: 12; -fx-background-radius: 8;">
+                            <VBox HBox.hgrow="ALWAYS">
+                                <Label style="-fx-font-size: 11px; -fx-text-fill: #64748b; -fx-font-weight: bold;" text="PEOPLE AHEAD IN QUEUE" />
+                                <Label fx:id="lblPreviewAhead" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -fx-primary;" text="0" />
+                            </VBox>
+                            <VBox HBox.hgrow="ALWAYS">
+                                <Label style="-fx-font-size: 11px; -fx-text-fill: #64748b; -fx-font-weight: bold;" text="ESTIMATED WAITING TIME" />
+                                <Label fx:id="lblPreviewWait" style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -fx-success;" text="0 mins" />
+                            </VBox>
+                        </HBox>
+
+                        <GridPane hgap="16" vgap="12">
+                            <columnConstraints>
+                                <ColumnConstraints percentWidth="50" />
+                                <ColumnConstraints percentWidth="50" />
+                            </columnConstraints>
+                            <rowConstraints>
+                                <RowConstraints />
+                                <RowConstraints />
+                            </rowConstraints>
+
+                            <VBox spacing="6" GridPane.columnIndex="0" GridPane.rowIndex="0">
+                                <Label style="-fx-font-weight: bold;" text="2. Full Name *" />
+                                <TextField fx:id="txtCustomerName" promptText="e.g. John Doe" />
+                            </VBox>
+
+                            <VBox spacing="6" GridPane.columnIndex="1" GridPane.rowIndex="0">
+                                <Label style="-fx-font-weight: bold;" text="3. Mobile Number *" />
+                                <TextField fx:id="txtCustomerPhone" promptText="e.g. 9876543210" />
+                            </VBox>
+                        </GridPane>
+
+                        <!-- Priority Options -->
+                        <VBox spacing="10" style="-fx-background-color: #fef2f2; -fx-padding: 14; -fx-background-radius: 8; -fx-border-color: #fecaca; -fx-border-radius: 8;">
+                            <CheckBox fx:id="chkPriority" style="-fx-font-weight: bold; -fx-text-fill: #991b1b;" text="Request Priority Service (Senior Citizen / Medical / Emergency)" />
+                            <VBox spacing="6">
+                                <Label style="-fx-font-size: 12px; -fx-text-fill: #7f1d1d;" text="Select Priority Justification Category:" />
+                                <ComboBox fx:id="cmbPriorityReason" maxWidth="Infinity" />
+                            </VBox>
+                        </VBox>
+
+                        <Region VBox.vgrow="ALWAYS" />
+
+                        <Button fx:id="btnBookToken" maxWidth="Infinity" onAction="#handleBookToken" prefHeight="44" styleClass="btn-primary" text="Generate Digital Token &amp; Ticket" />
+                    </VBox>
+
+                    <!-- 2. Generated Ticket Slip Modal/Preview -->
+                    <VBox fx:id="boxTicketSlip" alignment="CENTER" managed="false" maxWidth="520" spacing="16" styleClass="ticket-slip" visible="false">
+                        <Label style="-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #64748b;" text="SMART QUEUE MANAGEMENT" />
+                        <Label style="-fx-font-size: 22px; -fx-font-weight: 800; -fx-text-fill: #0f172a;" text="DIGITAL TOKEN PASS" />
+
+                        <VBox alignment="CENTER" spacing="4" style="-fx-background-color: #eff6ff; -fx-padding: 16 36; -fx-background-radius: 12; -fx-border-color: #bfdbfe; -fx-border-radius: 12;">
+                            <Label style="-fx-font-size: 12px; -fx-font-weight: bold; -fx-text-fill: #1e40af;" text="YOUR TOKEN NUMBER" />
+                            <Label fx:id="lblTicketToken" styleClass="ticket-token-large" text="A-001" />
+                            <Label fx:id="lblTicketPriority" styleClass="badge-priority" text="REGULAR" />
+                        </VBox>
+
+                        <GridPane hgap="12" style="-fx-padding: 8;" vgap="8">
+                            <columnConstraints>
+                                <ColumnConstraints percentWidth="45" />
+                                <ColumnConstraints percentWidth="55" />
+                            </columnConstraints>
+                            <rowConstraints>
+                                <RowConstraints />
+                                <RowConstraints />
+                                <RowConstraints />
+                                <RowConstraints />
+                                <RowConstraints />
+                            </rowConstraints>
+
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #475569;" text="Service Desk:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                            <Label fx:id="lblTicketService" style="-fx-font-weight: bold;" text="Admissions" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #475569;" text="Customer Name:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                            <Label fx:id="lblTicketName" text="John Doe" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #475569;" text="Position in Queue:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                            <Label fx:id="lblTicketPosition" style="-fx-font-weight: bold; -fx-text-fill: #1e40af;" text="3" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #475569;" text="Estimated Wait:" GridPane.columnIndex="0" GridPane.rowIndex="3" />
+                            <Label fx:id="lblTicketWait" style="-fx-font-weight: bold; -fx-text-fill: #15803d;" text="15 minutes" GridPane.columnIndex="1" GridPane.rowIndex="3" />
+
+                            <Label style="-fx-font-weight: bold; -fx-text-fill: #475569;" text="Issued At:" GridPane.columnIndex="0" GridPane.rowIndex="4" />
+                            <Label fx:id="lblTicketTime" text="--" GridPane.columnIndex="1" GridPane.rowIndex="4" />
+                        </GridPane>
+
+                        <Label style="-fx-font-size: 11px; -fx-text-fill: #64748b;" text="Please watch the Waiting Hall Display Board for your token announcement." wrapText="true" />
+
+                        <HBox alignment="CENTER" spacing="12">
+                            <Button onAction="#handlePrintSaveSlip" prefHeight="38" style="-fx-background-color: #0284c7; -fx-text-fill: white;" text="💾 Print / Save Slip (TXT)" HBox.hgrow="ALWAYS" />
+                            <Button onAction="#handleBookAnother" prefHeight="38" styleClass="btn-secondary" text="Done / Book Another" HBox.hgrow="ALWAYS" />
+                        </HBox>
+                    </VBox>
+                </StackPane>
+            </Tab>
+
+            <!-- TAB 2: CHECK TOKEN STATUS -->
+            <Tab text="🔍 Check Token Status">
+                <VBox alignment="TOP_CENTER" spacing="20">
+                    <padding>
+                        <Insets bottom="24" left="28" right="28" top="24" />
+                    </padding>
+
+                    <VBox maxWidth="560" spacing="16" styleClass="card">
+                        <Label styleClass="card-header" text="Track Your Token in Real-Time" />
+                        <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 13px;" text="Enter your token number and the phone number used while booking." />
+
+                        <GridPane hgap="16" vgap="12">
+                            <columnConstraints>
+                                <ColumnConstraints percentWidth="50" />
+                                <ColumnConstraints percentWidth="50" />
+                            </columnConstraints>
+                            <rowConstraints>
+                                <RowConstraints />
+                            </rowConstraints>
+
+                            <VBox spacing="6" GridPane.columnIndex="0">
+                                <Label style="-fx-font-weight: bold;" text="Token Number *" />
+                                <TextField fx:id="txtCheckTokenNo" promptText="e.g. AD-001" />
+                            </VBox>
+
+                            <VBox spacing="6" GridPane.columnIndex="1">
+                                <Label style="-fx-font-weight: bold;" text="Phone Number *" />
+                                <TextField fx:id="txtCheckPhone" promptText="e.g. 9876543210" />
+                            </VBox>
+                        </GridPane>
+
+                        <Label fx:id="lblStatusError" style="-fx-text-fill: -fx-danger; -fx-font-size: 12px; -fx-font-weight: bold;" visible="false" wrapText="true" />
+
+                        <Button maxWidth="Infinity" onAction="#handleCheckStatus" prefHeight="40" styleClass="btn-primary" text="🔍 Check My Status" />
+
+                        <!-- Status Result Card -->
+                        <VBox fx:id="boxStatusResult" managed="false" spacing="10" style="-fx-background-color: #f8fafc; -fx-padding: 16; -fx-background-radius: 8; -fx-border-color: #cbd5e1; -fx-border-radius: 8;" visible="false">
+                            <HBox alignment="CENTER_LEFT">
+                                <Label fx:id="lblStatusResultToken" style="-fx-font-size: 26px; -fx-font-weight: 900; -fx-text-fill: -fx-primary; -fx-font-family: 'Consolas', monospace;" text="AD-001" />
+                                <Region HBox.hgrow="ALWAYS" />
+                                <Label fx:id="lblStatusResultState" styleClass="badge-called" text="WAITING" />
+                            </HBox>
+
+                            <GridPane hgap="10" vgap="6">
+                                <columnConstraints>
+                                    <ColumnConstraints prefWidth="120" />
+                                    <ColumnConstraints />
+                                </columnConstraints>
+                                <rowConstraints>
+                                    <RowConstraints />
+                                    <RowConstraints />
+                                    <RowConstraints />
+                                </rowConstraints>
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Customer Name:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                <Label fx:id="lblStatusResultName" style="-fx-font-weight: bold;" text="--" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Assigned Counter:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                <Label fx:id="lblStatusResultCounter" style="-fx-font-weight: bold; -fx-text-fill: #1e40af;" text="--" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Queue Status:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                                <Label fx:id="lblStatusResultWait" style="-fx-font-weight: bold; -fx-text-fill: #15803d;" text="--" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                            </GridPane>
+                        </VBox>
+                    </VBox>
+                </VBox>
+            </Tab>
+        </TabPane>
+    </center>
+</BorderPane>

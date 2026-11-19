@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.FlowPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane stylesheets="@../css/styles.css" styleClass="display-board-root" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.smartqueue.controller.DisplayBoardController">
+    <!-- Electronic Display Header -->
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="20" styleClass="display-header">
+            <VBox spacing="2">
+                <Label styleClass="display-title" text="SMART QUEUE • WAITING HALL DISPLAY" />
+                <Label style="-fx-text-fill: #94a3b8; -fx-font-size: 13px;" text="Live Service Counter Status • Auto-updates every 2 seconds" />
+            </VBox>
+
+            <Region HBox.hgrow="ALWAYS" />
+
+            <VBox alignment="CENTER_RIGHT" spacing="2">
+                <Label fx:id="lblClock" styleClass="display-clock" text="12:00:00 PM" />
+                <Label fx:id="lblDate" style="-fx-text-fill: #94a3b8; -fx-font-size: 13px;" text="Today" />
+            </VBox>
+
+            <Button onAction="#handleTestChime" style="-fx-background-color: #334155; -fx-text-fill: #38bdf8; -fx-font-size: 12px;" text="🔔 Audio Chime" />
+        </HBox>
+    </top>
+
+    <!-- Center Display Content -->
+    <center>
+        <HBox spacing="24">
+            <padding>
+                <Insets bottom="24" left="24" right="24" top="20" />
+            </padding>
+
+            <!-- Left 70%: Large "Now Serving" Counter Cards -->
+            <VBox spacing="16" HBox.hgrow="ALWAYS">
+                <Label style="-fx-font-size: 22px; -fx-font-weight: 900; -fx-text-fill: #f8fafc;" text="NOW SERVING" />
+                <FlowPane fx:id="paneNowServing" hgap="20" vgap="20" VBox.vgrow="ALWAYS" />
+            </VBox>
+
+            <!-- Right 30%: Next 5 Waiting Tokens -->
+            <VBox prefWidth="340" spacing="14" styleClass="upcoming-panel">
+                <Label styleClass="upcoming-header" text="NEXT IN LINE" />
+                <Label style="-fx-text-fill: #94a3b8; -fx-font-size: 12px;" text="Please be ready when your token is called." />
+
+                <TableView fx:id="tblUpcoming" style="-fx-background-color: #1e293b; -fx-text-fill: white;" VBox.vgrow="ALWAYS">
+                    <columns>
+                        <TableColumn fx:id="colUpcomingToken" prefWidth="100" text="Token" />
+                        <TableColumn fx:id="colUpcomingService" prefWidth="130" text="Service" />
+                        <TableColumn fx:id="colUpcomingPriority" prefWidth="90" text="Category" />
+                    </columns>
+                </TableView>
+            </VBox>
+        </HBox>
+    </center>
+</BorderPane>

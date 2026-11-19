@@ -1,0 +1,21 @@
+# Maven Build Artifacts
+target/
+web/backend/target/
+
+# Sensitive config — commit application.properties.example instead
+web/backend/src/main/resources/application.properties
+src/main/resources/db.properties
+web/backend/src/main/resources/application.properties.local
+
+# Node.js dependencies & build outputs
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/.env.local
+
+# IDE & OS files
+.idea/
+*.iml
+.vscode/
+*.class
+.DS_Store
+Thumbs.db

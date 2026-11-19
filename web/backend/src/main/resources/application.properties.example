@@ -1,0 +1,41 @@
+# ── Copy this file to application.properties and fill in real values ──
+
+# Server
+server.port=8080
+spring.application.name=smart-queue-web
+
+# Database
+spring.datasource.url=jdbc:mysql://localhost:3307/smart_queue_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+spring.datasource.username=root
+spring.datasource.password=CHANGE_ME
+
+# Hikari pool
+spring.datasource.hikari.maximum-pool-size=10
+spring.datasource.hikari.minimum-idle=2
+spring.datasource.hikari.idle-timeout=30000
+spring.datasource.hikari.connection-timeout=5000
+spring.datasource.hikari.pool-name=SmartQueue-Spring-MySQL-Pool
+
+# JPA / Hibernate
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
+
+# JWT — MUST be a fixed 64-hex-char string; never leave this random
+jwt.secret=REPLACE_WITH_64_HEX_CHARS
+jwt.expiration-ms=900000
+jwt.refresh-expiration-ms=604800000
+jwt.cookie-name=smartqueue_jwt
+jwt.refresh-cookie-name=smartqueue_refresh
+
+# Actuator
+management.endpoints.web.exposure.include=health,info
+management.endpoint.health.show-details=always
+
+# Swagger
+springdoc.swagger-ui.path=/swagger-ui.html
+springdoc.api-docs.path=/api-docs
+
+# Business parameters
+app.starvation_threshold_minutes=30
+app.default_service_duration_minutes=5

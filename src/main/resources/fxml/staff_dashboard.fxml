@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.CheckBox?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.TableColumn?>
+<?import javafx.scene.control.TableView?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.RowConstraints?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane stylesheets="@../css/styles.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.smartqueue.controller.StaffDashboardController">
+    <!-- Top Header -->
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="16" styleClass="app-header">
+            <VBox spacing="2">
+                <Label styleClass="app-title" text="Counter Staff Operation Dashboard" />
+                <Label styleClass="app-subtitle" text="Call Next • Attend Customers • Concurrency-Safe Queue Processing" />
+            </VBox>
+            <Region HBox.hgrow="ALWAYS" />
+            <HBox alignment="CENTER_RIGHT" spacing="12">
+                <Label style="-fx-text-fill: #94a3b8;" text="Active Staff:" />
+                <Label fx:id="lblStaffName" style="-fx-text-fill: white; -fx-font-weight: bold;" text="Staff Operator" />
+            </HBox>
+        </HBox>
+    </top>
+
+    <!-- Main Workspace -->
+    <center>
+        <VBox spacing="16">
+            <padding>
+                <Insets bottom="20" left="20" right="20" top="16" />
+            </padding>
+
+            <!-- Counter Selection Bar -->
+            <HBox alignment="CENTER_LEFT" spacing="16" styleClass="card">
+                <Label style="-fx-font-weight: bold;" text="Select Operating Counter:" />
+                <ComboBox fx:id="cmbCounters" prefWidth="250" />
+
+                <Label style="-fx-font-weight: bold;" text="Desk Status:" />
+                <Label fx:id="lblCounterStatus" styleClass="badge-serving" text="ONLINE" />
+
+                <Region HBox.hgrow="ALWAYS" />
+
+                <CheckBox fx:id="chkAutoCall" style="-fx-font-weight: bold; -fx-text-fill: #1e40af;" text="Auto-Call Next when Free" />
+            </HBox>
+
+            <!-- Current Serving Panel + KPI Cards -->
+            <HBox spacing="16">
+                <!-- Large Current Token Card -->
+                <VBox prefWidth="540" spacing="14" styleClass="card" HBox.hgrow="ALWAYS">
+                    <HBox alignment="CENTER_LEFT">
+                        <Label styleClass="card-header" text="Current Customer In Attendance" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Label fx:id="lblCurrentStatus" styleClass="badge-called" text="IDLE" />
+                    </HBox>
+
+                    <HBox alignment="CENTER" spacing="24" style="-fx-background-color: #f8fafc; -fx-padding: 16; -fx-background-radius: 10;">
+                        <VBox alignment="CENTER" spacing="2">
+                            <Label style="-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: #64748b;" text="TOKEN NUMBER" />
+                            <Label fx:id="lblCurrentToken" style="-fx-font-size: 44px; -fx-font-weight: 900; -fx-text-fill: -fx-primary; -fx-font-family: 'Consolas', monospace;" text="None" />
+                            <Label fx:id="lblCurrentPriority" styleClass="badge-priority" text="--" />
+                        </VBox>
+
+                        <VBox spacing="6" HBox.hgrow="ALWAYS">
+                            <GridPane hgap="8" vgap="6">
+                                <columnConstraints>
+                                    <ColumnConstraints prefWidth="90" />
+                                    <ColumnConstraints />
+                                </columnConstraints>
+                                <rowConstraints>
+                                    <RowConstraints />
+                                    <RowConstraints />
+                                    <RowConstraints />
+                                </rowConstraints>
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Customer:" GridPane.columnIndex="0" GridPane.rowIndex="0" />
+                                <Label fx:id="lblCurrentCustomer" style="-fx-font-weight: bold;" text="--" GridPane.columnIndex="1" GridPane.rowIndex="0" />
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Phone:" GridPane.columnIndex="0" GridPane.rowIndex="1" />
+                                <Label fx:id="lblCurrentPhone" text="--" GridPane.columnIndex="1" GridPane.rowIndex="1" />
+
+                                <Label style="-fx-font-weight: bold; -fx-text-fill: #64748b;" text="Duration:" GridPane.columnIndex="0" GridPane.rowIndex="2" />
+                                <Label fx:id="lblServingTimer" style="-fx-font-weight: bold; -fx-text-fill: #0284c7; -fx-font-family: 'Consolas', monospace;" text="00:00" GridPane.columnIndex="1" GridPane.rowIndex="2" />
+                            </GridPane>
+                        </VBox>
+                    </HBox>
+
+                    <!-- Action Buttons -->
+                    <HBox alignment="CENTER" spacing="8">
+                        <Button fx:id="btnCallNext" onAction="#handleCallNext" prefHeight="38" styleClass="btn-primary" text="📞 Call Next" />
+                        <Button fx:id="btnStartServing" onAction="#handleStartServing" prefHeight="38" style="-fx-background-color: #0284c7; -fx-text-fill: white;" text="▶ Start" />
+                        <Button fx:id="btnComplete" onAction="#handleComplete" prefHeight="38" styleClass="btn-success" text="✔ Complete" />
+                        <Button fx:id="btnSkip" onAction="#handleSkip" prefHeight="38" styleClass="btn-danger" text="✖ Skip" />
+                        <Button fx:id="btnRecall" onAction="#handleRecall" prefHeight="38" styleClass="btn-secondary" text="🔊 Recall" />
+                        <Button fx:id="btnTransfer" onAction="#handleTransfer" prefHeight="38" style="-fx-background-color: #8b5cf6; -fx-text-fill: white;" text="🔄 Transfer" />
+                    </HBox>
+                </VBox>
+
+                <!-- Counter Summary KPI Column -->
+                <VBox prefWidth="260" spacing="16">
+                    <VBox styleClass="kpi-card" VBox.vgrow="ALWAYS">
+                        <Label styleClass="kpi-title" text="WAITING IN YOUR SERVICE" />
+                        <Label fx:id="lblWaitingCount" styleClass="kpi-value" text="0" />
+                    </VBox>
+                    <VBox styleClass="kpi-card" VBox.vgrow="ALWAYS">
+                        <Label styleClass="kpi-title" text="COMPLETED BY YOU TODAY" />
+                        <Label fx:id="lblServedCount" style="-fx-text-fill: -fx-success;" styleClass="kpi-value" text="0" />
+                    </VBox>
+                </VBox>
+            </HBox>
+
+            <!-- Waiting Queue Table -->
+            <VBox spacing="8" styleClass="card" VBox.vgrow="ALWAYS">
+                <Label styleClass="card-header" text="Waiting Queue for this Service Desk" />
+                <TableView fx:id="tblWaiting" VBox.vgrow="ALWAYS">
+                    <columns>
+                        <TableColumn fx:id="colPosition" prefWidth="65" text="Pos" />
+                        <TableColumn fx:id="colTokenNumber" prefWidth="110" text="Token #" />
+                        <TableColumn fx:id="colCustomer" prefWidth="180" text="Customer Name" />
+                        <TableColumn fx:id="colPhone" prefWidth="130" text="Phone" />
+                        <TableColumn fx:id="colPriority" prefWidth="220" text="Priority Category" />
+                        <TableColumn fx:id="colEstWait" prefWidth="110" text="Est. Wait" />
+                    </columns>
+                </TableView>
+            </VBox>
+        </VBox>
+    </center>
+</BorderPane>

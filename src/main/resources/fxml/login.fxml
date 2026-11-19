@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.PasswordField?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.VBox?>
+
+<VBox prefWidth="420" spacing="16" stylesheets="@../css/styles.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.smartqueue.controller.LoginController">
+    <padding>
+        <Insets bottom="24" left="28" right="28" top="24" />
+    </padding>
+
+    <VBox spacing="4">
+        <Label fx:id="lblRoleHeader" style="-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: -fx-primary;" text="Authentication Required" />
+        <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 12px;" text="Please enter your username and BCrypt-secured password." />
+    </VBox>
+
+    <Label fx:id="lblError" style="-fx-text-fill: -fx-danger; -fx-font-weight: bold; -fx-font-size: 12px;" text="" />
+
+    <VBox spacing="6">
+        <Label style="-fx-font-weight: bold; -fx-font-size: 13px;" text="Username" />
+        <TextField fx:id="txtUsername" promptText="e.g. admin or staff1" />
+    </VBox>
+
+    <VBox spacing="6">
+        <Label style="-fx-font-weight: bold; -fx-font-size: 13px;" text="Password" />
+        <PasswordField fx:id="txtPassword" promptText="Enter password" />
+    </VBox>
+
+    <!-- Quick Demo Fill Helpers for College Presentation -->
+    <VBox spacing="4" style="-fx-background-color: #f1f5f9; -fx-padding: 8; -fx-background-radius: 6;">
+        <Label style="-fx-font-size: 11px; -fx-font-weight: bold; -fx-text-fill: #475569;" text="Quick Demo Logins (Viva Presentation):" />
+        <HBox spacing="8">
+            <Button onAction="#handleFillAdminCredentials" style="-fx-font-size: 11px; -fx-padding: 4 8;" text="Fill Admin (admin123)" />
+            <Button onAction="#handleFillStaffCredentials" style="-fx-font-size: 11px; -fx-padding: 4 8;" text="Fill Staff (staff123)" />
+        </HBox>
+    </VBox>
+
+    <HBox alignment="CENTER_RIGHT" spacing="12">
+        <Button onAction="#handleCancel" styleClass="btn-secondary" text="Cancel" />
+        <Button onAction="#handleLogin" styleClass="btn-primary" text="Sign In" />
+    </HBox>
+</VBox>

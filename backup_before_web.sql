@@ -1,0 +1,183 @@
+-- =============================================================================
+-- SMART QUEUE AND TOKEN MANAGEMENT SYSTEM
+-- Production Database Schema for MySQL 8.0+
+-- =============================================================================
+
+CREATE DATABASE IF NOT EXISTS smart_queue_db
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+USE smart_queue_db;
+
+-- -----------------------------------------------------------------------------
+-- 1. USERS TABLE
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(100) NOT NULL,
+    role ENUM('ADMIN', 'STAFF') NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------------------------------
+-- 2. SERVICES TABLE
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS services (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    prefix CHAR(2) NOT NULL UNIQUE,
+    default_avg_minutes INT NOT NULL DEFAULT 5,
+    active BOOLEAN NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------------------------------
+-- 3. COUNTERS TABLE
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS counters (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    service_id INT NOT NULL,
+    staff_id INT NULL,
+    status ENUM('OPEN', 'CLOSED', 'BUSY') NOT NULL DEFAULT 'CLOSED',
+    current_token_id INT NULL,
+    CONSTRAINT fk_counters_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    CONSTRAINT fk_counters_staff FOREIGN KEY (staff_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------------------------------
+-- 4. TOKENS TABLE
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    token_no VARCHAR(10) NOT NULL,
+    service_id INT NOT NULL,
+    customer_name VARCHAR(100) NOT NULL,
+    phone VARCHAR(20) NOT NULL,
+    priority ENUM('NORMAL', 'SENIOR', 'EMERGENCY') NOT NULL DEFAULT 'NORMAL',
+    status ENUM('WAITING', 'CALLED', 'SERVING', 'COMPLETED', 'SKIPPED', 'CANCELLED') NOT NULL DEFAULT 'WAITING',
+    counter_id INT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    called_at TIMESTAMP NULL,
+    started_at TIMESTAMP NULL,
+    completed_at TIMESTAMP NULL,
+    queue_date DATE NOT NULL,
+    CONSTRAINT fk_tokens_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    CONSTRAINT fk_tokens_counter FOREIGN KEY (counter_id) REFERENCES counters(id) ON DELETE SET NULL,
+    CONSTRAINT uq_service_date_token UNIQUE (service_id, queue_date, token_no)
+) ENGINE=InnoDB;
+
+-- Add circular foreign key for counters.current_token_id
+ALTER TABLE counters
+DROP FOREIGN KEY IF EXISTS fk_counters_token;
+ALTER TABLE counters
+ADD CONSTRAINT fk_counters_token FOREIGN KEY (current_token_id) REFERENCES tokens(id) ON DELETE SET NULL;
+
+-- Indexes for lightning-fast queue ordering and daily lookups
+CREATE INDEX idx_tokens_lookup ON tokens (service_id, status, priority, created_at);
+CREATE INDEX idx_tokens_queue_date ON tokens (queue_date);
+CREATE INDEX idx_tokens_phone ON tokens (phone);
+
+-- -----------------------------------------------------------------------------
+-- 5. TOKEN SEQUENCE TABLE (Row-level locking for atomic numbering)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS token_sequence (
+    service_id INT NOT NULL,
+    queue_date DATE NOT NULL,
+    last_number INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (service_id, queue_date),
+    CONSTRAINT fk_seq_service FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------------------------------
+-- 6. AUDIT LOG TABLE
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NULL,
+    action VARCHAR(100) NOT NULL,
+    token_id INT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_audit_token FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+-- =============================================================================
+-- SMART QUEUE AND TOKEN MANAGEMENT SYSTEM
+-- Seed Data for MySQL 8.0+
+-- Logins:
+-- Admin: admin / Admin@123
+-- Staff: staff1 / Staff@123, staff2 / Staff@123
+-- =============================================================================
+
+USE smart_queue_db;
+
+-- 1. Insert Users
+INSERT INTO users (id, username, password_hash, full_name, role, active) VALUES
+(1, 'admin',  '$2a$10$IsZtx8En9MdxqUQ73tmaoOJY3SKU.njmpDwe.4s.jRiYTkJ05R1gG', 'System Administrator', 'ADMIN', TRUE),
+(2, 'staff1', '$2a$10$uKv91zc/AKFCz8ebtAIob.po.Q0pD1jkiFp1aanhichuSOSbsVxCy', 'Alice Johnson (Admissions)', 'STAFF', TRUE),
+(3, 'staff2', '$2a$10$uKv91zc/AKFCz8ebtAIob.po.Q0pD1jkiFp1aanhichuSOSbsVxCy', 'Dr. Bob Smith (Clinic)', 'STAFF', TRUE)
+ON DUPLICATE KEY UPDATE full_name = VALUES(full_name);
+
+-- 2. Insert Services
+INSERT INTO services (id, name, prefix, default_avg_minutes, active) VALUES
+(1, 'Admission Office', 'AD', 6, TRUE),
+(2, 'Clinic',           'CL', 8, TRUE),
+(3, 'Library',          'LB', 4, TRUE)
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- 3. Insert Counters
+INSERT INTO counters (id, name, service_id, staff_id, status, current_token_id) VALUES
+(1, 'Counter 1 - Admissions', 1, 2,    'OPEN',   NULL),
+(2, 'Counter 2 - Admissions', 1, NULL, 'CLOSED', NULL),
+(3, 'Counter 3 - Clinic',     2, 3,    'OPEN',   NULL),
+(4, 'Counter 4 - Library',    3, NULL, 'CLOSED', NULL)
+ON DUPLICATE KEY UPDATE name = VALUES(name);
+
+-- 4. Insert 30 Completed Historical Tokens for Wait Time Estimation History
+-- Service 1: Admissions (15 tokens, avg ~5-7 mins)
+INSERT INTO tokens (token_no, service_id, customer_name, phone, priority, status, counter_id, created_at, called_at, started_at, completed_at, queue_date) VALUES
+('AD-001', 1, 'Rahul Sharma',    '9876543201', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 180 MINUTE), DATE_SUB(NOW(), INTERVAL 175 MINUTE), DATE_SUB(NOW(), INTERVAL 174 MINUTE), DATE_SUB(NOW(), INTERVAL 168 MINUTE), CURRENT_DATE()),
+('AD-002', 1, 'Priya Patel',     '9876543202', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 170 MINUTE), DATE_SUB(NOW(), INTERVAL 167 MINUTE), DATE_SUB(NOW(), INTERVAL 166 MINUTE), DATE_SUB(NOW(), INTERVAL 160 MINUTE), CURRENT_DATE()),
+('AD-003', 1, 'Amit Verma',      '9876543203', 'SENIOR', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 165 MINUTE), DATE_SUB(NOW(), INTERVAL 159 MINUTE), DATE_SUB(NOW(), INTERVAL 158 MINUTE), DATE_SUB(NOW(), INTERVAL 152 MINUTE), CURRENT_DATE()),
+('AD-004', 1, 'Sneha Rao',       '9876543204', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 155 MINUTE), DATE_SUB(NOW(), INTERVAL 151 MINUTE), DATE_SUB(NOW(), INTERVAL 150 MINUTE), DATE_SUB(NOW(), INTERVAL 143 MINUTE), CURRENT_DATE()),
+('AD-005', 1, 'Vikram Singh',    '9876543205', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 145 MINUTE), DATE_SUB(NOW(), INTERVAL 142 MINUTE), DATE_SUB(NOW(), INTERVAL 141 MINUTE), DATE_SUB(NOW(), INTERVAL 135 MINUTE), CURRENT_DATE()),
+('AD-006', 1, 'Ananya Gupta',    '9876543206', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 138 MINUTE), DATE_SUB(NOW(), INTERVAL 134 MINUTE), DATE_SUB(NOW(), INTERVAL 133 MINUTE), DATE_SUB(NOW(), INTERVAL 127 MINUTE), CURRENT_DATE()),
+('AD-007', 1, 'Rohan Mehra',     '9876543207', 'SENIOR', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 130 MINUTE), DATE_SUB(NOW(), INTERVAL 126 MINUTE), DATE_SUB(NOW(), INTERVAL 125 MINUTE), DATE_SUB(NOW(), INTERVAL 119 MINUTE), CURRENT_DATE()),
+('AD-008', 1, 'Neha Sen',        '9876543208', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 120 MINUTE), DATE_SUB(NOW(), INTERVAL 118 MINUTE), DATE_SUB(NOW(), INTERVAL 117 MINUTE), DATE_SUB(NOW(), INTERVAL 111 MINUTE), CURRENT_DATE()),
+('AD-009', 1, 'Karan Malhotra',  '9876543209', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 112 MINUTE), DATE_SUB(NOW(), INTERVAL 110 MINUTE), DATE_SUB(NOW(), INTERVAL 109 MINUTE), DATE_SUB(NOW(), INTERVAL 103 MINUTE), CURRENT_DATE()),
+('AD-010', 1, 'Pooja Nair',      '9876543210', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 104 MINUTE), DATE_SUB(NOW(), INTERVAL 102 MINUTE), DATE_SUB(NOW(), INTERVAL 101 MINUTE), DATE_SUB(NOW(), INTERVAL 95 MINUTE),  CURRENT_DATE()),
+('AD-011', 1, 'Deepak Joshi',    '9876543211', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 96 MINUTE),  DATE_SUB(NOW(), INTERVAL 94 MINUTE),  DATE_SUB(NOW(), INTERVAL 93 MINUTE),  DATE_SUB(NOW(), INTERVAL 87 MINUTE),  CURRENT_DATE()),
+('AD-012', 1, 'Suresh Reddy',    '9876543212', 'SENIOR', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 88 MINUTE),  DATE_SUB(NOW(), INTERVAL 86 MINUTE),  DATE_SUB(NOW(), INTERVAL 85 MINUTE),  DATE_SUB(NOW(), INTERVAL 79 MINUTE),  CURRENT_DATE()),
+('AD-013', 1, 'Meera Menon',     '9876543213', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 80 MINUTE),  DATE_SUB(NOW(), INTERVAL 78 MINUTE),  DATE_SUB(NOW(), INTERVAL 77 MINUTE),  DATE_SUB(NOW(), INTERVAL 71 MINUTE),  CURRENT_DATE()),
+('AD-014', 1, 'Alok Mishra',     '9876543214', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 72 MINUTE),  DATE_SUB(NOW(), INTERVAL 70 MINUTE),  DATE_SUB(NOW(), INTERVAL 69 MINUTE),  DATE_SUB(NOW(), INTERVAL 63 MINUTE),  CURRENT_DATE()),
+('AD-015', 1, 'Sunita Das',      '9876543215', 'NORMAL', 'COMPLETED', 1, DATE_SUB(NOW(), INTERVAL 64 MINUTE),  DATE_SUB(NOW(), INTERVAL 62 MINUTE),  DATE_SUB(NOW(), INTERVAL 61 MINUTE),  DATE_SUB(NOW(), INTERVAL 55 MINUTE),  CURRENT_DATE());
+
+-- Service 2: Clinic (8 tokens, avg ~8 mins)
+INSERT INTO tokens (token_no, service_id, customer_name, phone, priority, status, counter_id, created_at, called_at, started_at, completed_at, queue_date) VALUES
+('CL-001', 2, 'Aditya Roy',      '9876543216', 'EMERGENCY', 'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 140 MINUTE), DATE_SUB(NOW(), INTERVAL 138 MINUTE), DATE_SUB(NOW(), INTERVAL 137 MINUTE), DATE_SUB(NOW(), INTERVAL 128 MINUTE), CURRENT_DATE()),
+('CL-002', 2, 'Bhavna Kulkarni', '9876543217', 'SENIOR',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 130 MINUTE), DATE_SUB(NOW(), INTERVAL 127 MINUTE), DATE_SUB(NOW(), INTERVAL 126 MINUTE), DATE_SUB(NOW(), INTERVAL 118 MINUTE), CURRENT_DATE()),
+('CL-003', 2, 'Chetan Bhagat',   '9876543218', 'NORMAL',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 120 MINUTE), DATE_SUB(NOW(), INTERVAL 117 MINUTE), DATE_SUB(NOW(), INTERVAL 116 MINUTE), DATE_SUB(NOW(), INTERVAL 108 MINUTE), CURRENT_DATE()),
+('CL-004', 2, 'Divya Bharti',    '9876543219', 'NORMAL',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 110 MINUTE), DATE_SUB(NOW(), INTERVAL 107 MINUTE), DATE_SUB(NOW(), INTERVAL 106 MINUTE), DATE_SUB(NOW(), INTERVAL 98 MINUTE),  CURRENT_DATE()),
+('CL-005', 2, 'Esha Deol',       '9876543220', 'NORMAL',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 100 MINUTE), DATE_SUB(NOW(), INTERVAL 97 MINUTE),  DATE_SUB(NOW(), INTERVAL 96 MINUTE),  DATE_SUB(NOW(), INTERVAL 88 MINUTE),  CURRENT_DATE()),
+('CL-006', 2, 'Farhan Akhtar',   '9876543221', 'SENIOR',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 90 MINUTE),  DATE_SUB(NOW(), INTERVAL 87 MINUTE),  DATE_SUB(NOW(), INTERVAL 86 MINUTE),  DATE_SUB(NOW(), INTERVAL 78 MINUTE),  CURRENT_DATE()),
+('CL-007', 2, 'Gaurav Kapoor',   '9876543222', 'NORMAL',    'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 80 MINUTE),  DATE_SUB(NOW(), INTERVAL 77 MINUTE),  DATE_SUB(NOW(), INTERVAL 76 MINUTE),  DATE_SUB(NOW(), INTERVAL 68 MINUTE),  CURRENT_DATE()),
+('CL-008', 2, 'Harsh Vardhan',   '9876543223', 'EMERGENCY', 'COMPLETED', 3, DATE_SUB(NOW(), INTERVAL 70 MINUTE),  DATE_SUB(NOW(), INTERVAL 67 MINUTE),  DATE_SUB(NOW(), INTERVAL 66 MINUTE),  DATE_SUB(NOW(), INTERVAL 58 MINUTE),  CURRENT_DATE());
+
+-- Service 3: Library (7 tokens, avg ~4 mins)
+INSERT INTO tokens (token_no, service_id, customer_name, phone, priority, status, counter_id, created_at, called_at, started_at, completed_at, queue_date) VALUES
+('LB-001', 3, 'Ishaan Khatter',  '9876543224', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 90 MINUTE), DATE_SUB(NOW(), INTERVAL 88 MINUTE), DATE_SUB(NOW(), INTERVAL 87 MINUTE), DATE_SUB(NOW(), INTERVAL 83 MINUTE), CURRENT_DATE()),
+('LB-002', 3, 'Janhvi Kapoor',   '9876543225', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 84 MINUTE), DATE_SUB(NOW(), INTERVAL 82 MINUTE), DATE_SUB(NOW(), INTERVAL 81 MINUTE), DATE_SUB(NOW(), INTERVAL 77 MINUTE), CURRENT_DATE()),
+('LB-003', 3, 'Kriti Sanon',     '9876543226', 'SENIOR', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 78 MINUTE), DATE_SUB(NOW(), INTERVAL 76 MINUTE), DATE_SUB(NOW(), INTERVAL 75 MINUTE), DATE_SUB(NOW(), INTERVAL 71 MINUTE), CURRENT_DATE()),
+('LB-004', 3, 'Lucky Ali',       '9876543227', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 72 MINUTE), DATE_SUB(NOW(), INTERVAL 70 MINUTE), DATE_SUB(NOW(), INTERVAL 69 MINUTE), DATE_SUB(NOW(), INTERVAL 65 MINUTE), CURRENT_DATE()),
+('LB-005', 3, 'Manish Paul',     '9876543228', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 66 MINUTE), DATE_SUB(NOW(), INTERVAL 64 MINUTE), DATE_SUB(NOW(), INTERVAL 63 MINUTE), DATE_SUB(NOW(), INTERVAL 59 MINUTE), CURRENT_DATE()),
+('LB-006', 3, 'Navya Nanda',     '9876543229', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 60 MINUTE), DATE_SUB(NOW(), INTERVAL 58 MINUTE), DATE_SUB(NOW(), INTERVAL 57 MINUTE), DATE_SUB(NOW(), INTERVAL 53 MINUTE), CURRENT_DATE()),
+('LB-007', 3, 'Omkar Kapoor',    '9876543230', 'NORMAL', 'COMPLETED', 4, DATE_SUB(NOW(), INTERVAL 54 MINUTE), DATE_SUB(NOW(), INTERVAL 52 MINUTE), DATE_SUB(NOW(), INTERVAL 51 MINUTE), DATE_SUB(NOW(), INTERVAL 47 MINUTE), CURRENT_DATE());
+
+-- 5. Seed token_sequence table with current highest numbers
+INSERT INTO token_sequence (service_id, queue_date, last_number) VALUES
+(1, CURRENT_DATE(), 15),
+(2, CURRENT_DATE(), 8),
+(3, CURRENT_DATE(), 7)
+ON DUPLICATE KEY UPDATE last_number = VALUES(last_number);

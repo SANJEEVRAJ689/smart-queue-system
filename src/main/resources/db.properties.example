@@ -1,0 +1,17 @@
+# MySQL 8 Database Configuration Template
+# Copy this file to db.properties and set your local MySQL credentials.
+
+db.driver=com.mysql.cj.jdbc.Driver
+db.url=jdbc:mysql://localhost:3306/smart_queue_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&createDatabaseIfNotExist=true
+db.user=root
+db.password=root
+
+# HikariCP Connection Pool Settings
+db.pool.maximumPoolSize=10
+db.pool.minimumIdle=2
+db.pool.idleTimeout=30000
+db.pool.connectionTimeout=5000
+db.pool.maxLifetime=1800000
+
+# Set to true to automatically use in-memory H2 if MySQL is offline
+db.offline.fallback.enabled=true

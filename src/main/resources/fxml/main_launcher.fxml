@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.ColumnConstraints?>
+<?import javafx.scene.layout.GridPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.RowConstraints?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane stylesheets="@../css/styles.css" xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.smartqueue.controller.MainLauncherController">
+    <!-- Top Header Bar -->
+    <top>
+        <HBox alignment="CENTER_LEFT" spacing="16" styleClass="app-header">
+            <VBox spacing="2">
+                <Label styleClass="app-title" text="Smart Queue &amp; Token Management System" />
+                <Label styleClass="app-subtitle" text="College Project Portal • Multi-Role Desktop Architecture" />
+            </VBox>
+            <Region HBox.hgrow="ALWAYS" />
+            <VBox alignment="CENTER_RIGHT" spacing="2">
+                <Label fx:id="lblCurrentUser" style="-fx-text-fill: #e2e8f0; -fx-font-weight: bold;" text="Not logged in" />
+                <Label fx:id="lblDatabaseMode" text="Checking DB..." />
+            </VBox>
+            <Button onAction="#handleLogout" styleClass="btn-secondary" text="Logout" />
+        </HBox>
+    </top>
+
+    <!-- Center Content: Role Launcher Cards -->
+    <center>
+        <VBox alignment="CENTER" spacing="24">
+            <padding>
+                <Insets bottom="32" left="32" right="32" top="28" />
+            </padding>
+
+            <Label style="-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #1e293b;" text="Select Application Role / Window to Launch" />
+
+            <!-- Quick Metrics Overview -->
+            <HBox alignment="CENTER" spacing="20">
+                <VBox prefWidth="200" styleClass="kpi-card">
+                    <Label styleClass="kpi-title" text="TODAY'S TOKENS" />
+                    <Label fx:id="lblTodayTokens" styleClass="kpi-value" text="0" />
+                </VBox>
+                <VBox prefWidth="200" styleClass="kpi-card">
+                    <Label styleClass="kpi-title" text="ACTIVE COUNTERS" />
+                    <Label fx:id="lblActiveCounters" styleClass="kpi-value" text="0" />
+                </VBox>
+            </HBox>
+
+            <!-- 2x2 Grid of Portal Launchers -->
+            <GridPane hgap="24" vgap="24" alignment="CENTER">
+                <columnConstraints>
+                    <ColumnConstraints prefWidth="340" />
+                    <ColumnConstraints prefWidth="340" />
+                </columnConstraints>
+                <rowConstraints>
+                    <RowConstraints prefHeight="160" />
+                    <RowConstraints prefHeight="160" />
+                </rowConstraints>
+
+                <!-- 1. Customer Kiosk Card -->
+                <VBox alignment="CENTER_LEFT" spacing="12" styleClass="card" GridPane.columnIndex="0" GridPane.rowIndex="0">
+                    <Label styleClass="card-header" text="1. Customer Token Booking Kiosk" />
+                    <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 12px;" text="Self-service kiosk for students and visitors to book tokens, choose department, and set priority." wrapText="true" />
+                    <Region VBox.vgrow="ALWAYS" />
+                    <Button maxWidth="Infinity" onAction="#handleOpenKiosk" styleClass="btn-primary" text="Open Customer Kiosk" />
+                </VBox>
+
+                <!-- 2. Staff Dashboard Card -->
+                <VBox alignment="CENTER_LEFT" spacing="12" styleClass="card" GridPane.columnIndex="1" GridPane.rowIndex="0">
+                    <Label styleClass="card-header" text="2. Counter Staff Portal" />
+                    <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 12px;" text="Desk operations: Call Next, Serve, Complete, Skip No-show, Recall, and auto-calling." wrapText="true" />
+                    <Region VBox.vgrow="ALWAYS" />
+                    <Button maxWidth="Infinity" onAction="#handleOpenStaffPortal" styleClass="btn-success" text="Open Counter Staff Portal" />
+                </VBox>
+
+                <!-- 3. Live Display Board Card -->
+                <VBox alignment="CENTER_LEFT" spacing="12" styleClass="card" GridPane.columnIndex="0" GridPane.rowIndex="1">
+                    <Label styleClass="card-header" text="3. Live Waiting Hall Display Board" />
+                    <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 12px;" text="Big public TV screen showing 'Now Serving: Token X at Counter Y', next 5 in line, and audio announcements." wrapText="true" />
+                    <Region VBox.vgrow="ALWAYS" />
+                    <Button maxWidth="Infinity" onAction="#handleOpenDisplayBoard" style="-fx-background-color: #0284c7; -fx-text-fill: white;" text="Open Live Display Board" />
+                </VBox>
+
+                <!-- 4. Admin Dashboard Card -->
+                <VBox alignment="CENTER_LEFT" spacing="12" styleClass="card" GridPane.columnIndex="1" GridPane.rowIndex="1">
+                    <Label styleClass="card-header" text="4. Admin Panel &amp; Analytics" />
+                    <Label style="-fx-text-fill: -fx-text-muted; -fx-font-size: 12px;" text="Manage services, counters, staff accounts, view bar/line charts, and export CSV reports." wrapText="true" />
+                    <Region VBox.vgrow="ALWAYS" />
+                    <Button maxWidth="Infinity" onAction="#handleOpenAdminDashboard" style="-fx-background-color: #7c3aed; -fx-text-fill: white;" text="Open Admin Panel" />
+                </VBox>
+            </GridPane>
+        </VBox>
+    </center>
+</BorderPane>

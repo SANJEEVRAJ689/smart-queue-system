@@ -63,7 +63,11 @@ export const StaffDashboardPage: React.FC = () => {
 
   // Transfer Modal State
   const [showTransferModal, setShowTransferModal] = useState<boolean>(false);
-  const [transferTargetServiceId, setTransferTargetServiceId] = useState<number | null>(null);
+  const [transferTargetCounterId, setTransferTargetCounterId] = useState<number | null>(null);
+  const [transferBtnStatus, setTransferBtnStatus] = useState<{
+    state: 'idle' | 'loading' | 'success' | 'error';
+    message?: string;
+  }>({ state: 'idle' });
 
   // Load Counters & Services
   const loadInitialData = async () => {
@@ -100,7 +104,7 @@ export const StaffDashboardPage: React.FC = () => {
       const srvId = currentCounter?.serviceId;
 
       const [qList, cntList] = await Promise.all([
-        api.getStaffQueue(srvId),
+        api.getStaffQueue(srvId, selectedCounterId),
         api.getStaffCounters()
       ]);
 
@@ -254,19 +258,54 @@ export const StaffDashboardPage: React.FC = () => {
     }
   };
 
-  // Action: Transfer Token to another service
+  // Action: Transfer Token to another counter / department
   const handleTransferToken = async () => {
-    if (!activeToken || !transferTargetServiceId) return;
+    if (!activeToken || !transferTargetCounterId) return;
+
+    if (transferTargetCounterId === selectedCounterId) {
+      const msg = 'Cannot transfer to the same counter';
+      setTransferBtnStatus({ state: 'error', message: msg });
+      setActionError(msg);
+      return;
+    }
+
+    const targetCounter = counters.find((c) => c.id === transferTargetCounterId);
+    if (targetCounter?.status === 'CLOSED') {
+      const msg = 'Cannot transfer to a closed counter';
+      setTransferBtnStatus({ state: 'error', message: msg });
+      setActionError(msg);
+      return;
+    }
+
+    setTransferBtnStatus({ state: 'loading' });
     setActionLoading(true);
     setActionError(null);
+
     try {
-      await api.transferToken(activeToken.id, transferTargetServiceId);
-      setActionMessage(`Token ${activeToken.tokenNo} transferred successfully.`);
+      await api.transferToken(activeToken.id, {
+        targetCounterId: transferTargetCounterId,
+        targetServiceId: targetCounter?.serviceId,
+        sourceCounterId: selectedCounterId
+      });
+
+      const successMsg = `Transferred to ${targetCounter?.name || 'desk'}`;
+      setTransferBtnStatus({ state: 'success', message: successMsg });
+      setActionMessage(`Token ${activeToken.tokenNo} transferred to ${targetCounter?.name || 'desk'}.`);
       setActiveToken(null);
-      setShowTransferModal(false);
+
       await refreshQueueAndDesk();
+
+      setTimeout(() => {
+        setShowTransferModal(false);
+      }, 700);
+
+      setTimeout(() => {
+        setTransferBtnStatus({ state: 'idle' });
+      }, 3000);
     } catch (err) {
-      setActionError(getErrorMessage(err));
+      const errorMsg = getErrorMessage(err);
+      setTransferBtnStatus({ state: 'error', message: errorMsg });
+      setActionError(errorMsg);
     } finally {
       setActionLoading(false);
     }
@@ -491,11 +530,26 @@ export const StaffDashboardPage: React.FC = () => {
                   </button>
 
                   <button
-                    onClick={() => setShowTransferModal(true)}
+                    onClick={() => {
+                      setTransferBtnStatus({ state: 'idle' });
+                      setShowTransferModal(true);
+                    }}
                     disabled={actionLoading}
-                    className="col-span-2 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-100 dark:hover:bg-slate-750 flex items-center justify-center gap-1.5"
+                    className={`col-span-2 py-2 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+                      transferBtnStatus.state === 'success'
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                        : transferBtnStatus.state === 'error'
+                        ? 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-750'
+                    }`}
+                    data-testid="btn-transfer-token"
                   >
-                    <ArrowRightLeft className="w-3.5 h-3.5" /> Transfer to Another Department
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    {transferBtnStatus.state === 'success'
+                      ? `✓ ${transferBtnStatus.message}`
+                      : transferBtnStatus.state === 'error'
+                      ? `✕ ${transferBtnStatus.message}`
+                      : 'Transfer to Another Counter'}
                   </button>
                 </div>
               </div>
@@ -649,47 +703,99 @@ export const StaffDashboardPage: React.FC = () => {
       {showTransferModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 max-w-md w-full border border-slate-200 dark:border-slate-700 shadow-2xl space-y-4">
-            <h3 className="text-lg font-black text-slate-900 dark:text-white">
+            <h3 className="text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+              <ArrowRightLeft className="w-5 h-5 text-blue-600" />
               Transfer Token {activeToken?.tokenNo}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Select the destination department service to transfer this customer&rsquo;s ticket to.
+              Select the destination desk to transfer this customer&rsquo;s ticket to. The token keeps its number and enters the target desk&rsquo;s queue as WAITING.
             </p>
 
-            <div className="space-y-2">
-              {services.map((s) => (
-                <label
-                  key={s.id}
-                  className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer text-xs font-bold ${
-                    transferTargetServiceId === s.id
-                      ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-600'
-                      : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>{s.name} (Prefix {s.prefix})</span>
-                  <input
-                    type="radio"
-                    name="targetService"
-                    checked={transferTargetServiceId === s.id}
-                    onChange={() => setTransferTargetServiceId(s.id)}
-                  />
-                </label>
-              ))}
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {counters.map((c) => {
+                const isCurrent = c.id === selectedCounterId;
+                const isClosed = c.status === 'CLOSED';
+                const isBlocked = isCurrent || isClosed;
+                const isSelected = transferTargetCounterId === c.id;
+                const svc = services.find((s) => s.id === c.serviceId);
+
+                return (
+                  <label
+                    key={c.id}
+                    className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold transition-colors ${
+                      isBlocked
+                        ? 'opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                        : isSelected
+                        ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-600 cursor-pointer'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-400 cursor-pointer'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold">{c.name}</div>
+                      <div className="text-[10px] text-slate-400 font-normal">
+                        {svc ? `${svc.name} (${svc.prefix})` : 'General Service'} &bull; Status: {c.status}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {isCurrent && (
+                        <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded-md">
+                          Same Desk
+                        </span>
+                      )}
+                      {isClosed && (
+                        <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 px-2 py-0.5 rounded-md">
+                          Closed
+                        </span>
+                      )}
+                      <input
+                        type="radio"
+                        name="targetCounter"
+                        disabled={isBlocked}
+                        checked={isSelected}
+                        onChange={() => {
+                          if (!isBlocked) {
+                            setTransferTargetCounterId(c.id);
+                            setTransferBtnStatus({ state: 'idle' });
+                          }
+                        }}
+                      />
+                    </div>
+                  </label>
+                );
+              })}
             </div>
 
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => setShowTransferModal(false)}
+                onClick={() => {
+                  setShowTransferModal(false);
+                  setTransferBtnStatus({ state: 'idle' });
+                }}
                 className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 dark:text-slate-300"
               >
                 Cancel
               </button>
               <button
                 onClick={handleTransferToken}
-                disabled={!transferTargetServiceId || actionLoading}
-                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold disabled:opacity-50"
+                disabled={!transferTargetCounterId || transferBtnStatus.state === 'loading'}
+                className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                  transferBtnStatus.state === 'success'
+                    ? 'bg-emerald-600'
+                    : transferBtnStatus.state === 'error'
+                    ? 'bg-rose-600'
+                    : 'bg-blue-600 hover:bg-blue-700 disabled:opacity-50'
+                }`}
+                data-testid="btn-confirm-transfer"
               >
-                Confirm Transfer
+                {transferBtnStatus.state === 'loading' ? (
+                  <>Transferring...</>
+                ) : transferBtnStatus.state === 'success' ? (
+                  <>✓ {transferBtnStatus.message || 'Transferred!'}</>
+                ) : transferBtnStatus.state === 'error' ? (
+                  <>✕ {transferBtnStatus.message || 'Transfer Failed'}</>
+                ) : (
+                  <>Confirm Transfer</>
+                )}
               </button>
             </div>
           </div>

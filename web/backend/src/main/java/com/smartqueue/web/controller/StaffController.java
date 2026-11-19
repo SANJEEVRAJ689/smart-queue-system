@@ -74,8 +74,29 @@ public class StaffController {
     @Operation(summary = "Transfer Token", description = "Moves ticket to another department queue.")
     public ResponseEntity<StaffTokenResponse> transferToken(
             @PathVariable int tokenId,
-            @RequestBody TransferRequest request) {
-        return ResponseEntity.ok(staffService.transferToken(tokenId, request.getTargetServiceId(), null));
+            @RequestBody(required = false) TransferRequest request,
+            @RequestParam(required = false) Integer targetServiceId,
+            @RequestParam(required = false) Integer targetCounterId,
+            @RequestParam(required = false) Integer sourceCounterId) {
+        if (request == null) {
+            request = new TransferRequest(targetServiceId, targetCounterId, sourceCounterId);
+        } else {
+            if (request.getTargetServiceId() == null && targetServiceId != null) {
+                request.setTargetServiceId(targetServiceId);
+            }
+            if (request.getTargetCounterId() == null && targetCounterId != null) {
+                request.setTargetCounterId(targetCounterId);
+            }
+            if (request.getSourceCounterId() == null && sourceCounterId != null) {
+                request.setSourceCounterId(sourceCounterId);
+            }
+        }
+        return ResponseEntity.ok(staffService.transferToken(
+                tokenId,
+                request.getTargetServiceId(),
+                request.getTargetCounterId(),
+                request.getSourceCounterId(),
+                null));
     }
 
     @PostMapping("/counters/{counterId}/status")
@@ -104,9 +125,11 @@ public class StaffController {
     }
 
     @GetMapping("/queue")
-    @Operation(summary = "View Live Queue", description = "Returns waiting queue optionally filtered by service.")
-    public ResponseEntity<List<StaffTokenResponse>> getQueue(@RequestParam(required = false) Integer serviceId) {
-        return ResponseEntity.ok(staffService.getWaitingQueue(serviceId));
+    @Operation(summary = "View Live Queue", description = "Returns waiting queue optionally filtered by service or counter.")
+    public ResponseEntity<List<StaffTokenResponse>> getQueue(
+            @RequestParam(required = false) Integer serviceId,
+            @RequestParam(required = false) Integer counterId) {
+        return ResponseEntity.ok(staffService.getWaitingQueue(serviceId, counterId));
     }
 
     @GetMapping("/history")

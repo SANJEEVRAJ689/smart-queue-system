@@ -58,7 +58,8 @@ public class SecurityConfig {
                     "/v3/api-docs/**",
                     "/api-docs/**",
                     "/ws/**",
-                    "/api/display/**"
+                    "/api/display/**",
+                    "/api/public/**"
                 ).permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/customer/**").permitAll()

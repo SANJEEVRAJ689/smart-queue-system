@@ -153,11 +153,19 @@ public class StaffDtos {
 
     public static class TransferRequest {
         private Integer targetServiceId;
+        private Integer targetCounterId;
+        private Integer sourceCounterId;
 
         public TransferRequest() {}
 
         public TransferRequest(Integer targetServiceId) {
             this.targetServiceId = targetServiceId;
+        }
+
+        public TransferRequest(Integer targetServiceId, Integer targetCounterId, Integer sourceCounterId) {
+            this.targetServiceId = targetServiceId;
+            this.targetCounterId = targetCounterId;
+            this.sourceCounterId = sourceCounterId;
         }
 
         public Integer getTargetServiceId() {
@@ -166,6 +174,22 @@ public class StaffDtos {
 
         public void setTargetServiceId(Integer targetServiceId) {
             this.targetServiceId = targetServiceId;
+        }
+
+        public Integer getTargetCounterId() {
+            return targetCounterId;
+        }
+
+        public void setTargetCounterId(Integer targetCounterId) {
+            this.targetCounterId = targetCounterId;
+        }
+
+        public Integer getSourceCounterId() {
+            return sourceCounterId;
+        }
+
+        public void setSourceCounterId(Integer sourceCounterId) {
+            this.sourceCounterId = sourceCounterId;
         }
     }
 

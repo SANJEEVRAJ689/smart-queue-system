@@ -1,7 +1,7 @@
 package com.smartqueue.web.service;
 
-import com.smartqueue.web.dto.AdminDtos.AnalyticsSummaryResponse;
-import com.smartqueue.web.dto.AdminDtos.CreateStaffRequest;
+import com.smartqueue.web.dto.AdminDtos;
+import com.smartqueue.web.dto.AdminDtos.*;
 import com.smartqueue.web.entity.*;
 import com.smartqueue.web.repository.*;
 import org.springframework.http.HttpStatus;
@@ -26,6 +26,7 @@ public class AdminService {
     private final UserRepository userRepository;
     private final TokenRepository tokenRepository;
     private final AuditLogRepository auditLogRepository;
+    private final CustomerRepository customerRepository;
     private final PasswordEncoder passwordEncoder;
 
     public AdminService(
@@ -34,12 +35,14 @@ public class AdminService {
             UserRepository userRepository,
             TokenRepository tokenRepository,
             AuditLogRepository auditLogRepository,
+            CustomerRepository customerRepository,
             PasswordEncoder passwordEncoder) {
         this.serviceRepository = serviceRepository;
         this.counterRepository = counterRepository;
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.auditLogRepository = auditLogRepository;
+        this.customerRepository = customerRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -104,14 +107,16 @@ public class AdminService {
     }
 
     public AnalyticsSummaryResponse getAnalyticsSummary() {
-        LocalDate today = LocalDate.now();
+        ZoneId kolkataZone = ZoneId.of("Asia/Kolkata");
+        LocalDate today = LocalDate.now(kolkataZone);
         List<TokenEntity> todayTokens = tokenRepository.findByQueueDateOrderByCreatedAtDesc(today);
 
         long total = todayTokens.size();
         long waiting = todayTokens.stream().filter(t -> "WAITING".equals(t.getStatus())).count();
-        long serving = todayTokens.stream().filter(t -> "SERVING".equals(t.getStatus())).count();
+        long serving = todayTokens.stream().filter(t -> "SERVING".equals(t.getStatus()) || "CALLED".equals(t.getStatus())).count();
         long completed = todayTokens.stream().filter(t -> "COMPLETED".equals(t.getStatus())).count();
         long skipped = todayTokens.stream().filter(t -> "SKIPPED".equals(t.getStatus())).count();
+        long cancelled = todayTokens.stream().filter(t -> "CANCELLED".equals(t.getStatus())).count();
 
         double totalWaitSec = 0;
         int waitCount = 0;
@@ -124,7 +129,7 @@ public class AdminService {
 
         for (TokenEntity t : todayTokens) {
             if (t.getCreatedAt() != null) {
-                int hour = t.getCreatedAt().atZone(ZoneId.systemDefault()).getHour();
+                int hour = t.getCreatedAt().atZone(kolkataZone).getHour();
                 hourlyMap.put(hour, hourlyMap.getOrDefault(hour, 0) + 1);
             }
 
@@ -157,12 +162,89 @@ public class AdminService {
         resp.setServingTokens(serving);
         resp.setCompletedTokens(completed);
         resp.setSkippedTokens(skipped);
+        resp.setCancelledCount(cancelled);
         resp.setAvgWaitMinutes(Math.round(avgWaitMins * 10.0) / 10.0);
         resp.setAvgServiceMinutes(Math.round(avgServiceMins * 10.0) / 10.0);
         resp.setNoShowRate(Math.round(noShowRate * 10.0) / 10.0);
         resp.setServerTimeUtc(Instant.now().toString());
         resp.setHourlyDistribution(hourlyList);
 
+        return resp;
+    }
+
+    public List<AdminDtos.HourlyStatResponse> getHourlyStats() {
+        ZoneId kolkataZone = ZoneId.of("Asia/Kolkata");
+        LocalDate today = LocalDate.now(kolkataZone);
+        List<TokenEntity> todayTokens = tokenRepository.findByQueueDateOrderByCreatedAtDesc(today);
+        if (todayTokens.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        Map<Integer, Integer> hourlyMap = new TreeMap<>();
+        int minHour = 9;
+        int maxHour = 18;
+        for (TokenEntity t : todayTokens) {
+            if (t.getCreatedAt() != null) {
+                int hour = t.getCreatedAt().atZone(kolkataZone).getHour();
+                hourlyMap.put(hour, hourlyMap.getOrDefault(hour, 0) + 1);
+                if (hour < minHour) minHour = hour;
+                if (hour > maxHour) maxHour = hour;
+            }
+        }
+
+        List<AdminDtos.HourlyStatResponse> list = new ArrayList<>();
+        for (int h = minHour; h <= maxHour; h++) {
+            int count = hourlyMap.getOrDefault(h, 0);
+            list.add(new AdminDtos.HourlyStatResponse(h, String.format("%02d:00", h), count));
+        }
+        return list;
+    }
+
+    public List<AdminDtos.ServiceStatResponse> getServiceStats() {
+        ZoneId kolkataZone = ZoneId.of("Asia/Kolkata");
+        LocalDate today = LocalDate.now(kolkataZone);
+        List<TokenEntity> todayTokens = tokenRepository.findByQueueDateOrderByCreatedAtDesc(today);
+        List<ServiceEntity> services = serviceRepository.findAll();
+
+        List<AdminDtos.ServiceStatResponse> result = new ArrayList<>();
+        for (ServiceEntity s : services) {
+            int sId = s.getId();
+            List<TokenEntity> sTokens = todayTokens.stream()
+                    .filter(t -> t.getServiceId() != null && t.getServiceId().equals(sId))
+                    .toList();
+            int total = sTokens.size();
+            int completed = (int) sTokens.stream().filter(t -> "COMPLETED".equals(t.getStatus())).count();
+
+            double totalWaitSec = 0;
+            int waitCount = 0;
+            for (TokenEntity t : sTokens) {
+                if (t.getCreatedAt() != null && t.getCalledAt() != null) {
+                    long wait = Duration.between(t.getCreatedAt(), t.getCalledAt()).getSeconds();
+                    if (wait >= 0) {
+                        totalWaitSec += wait;
+                        waitCount++;
+                    }
+                }
+            }
+            double avgWaitMins = waitCount > 0 ? Math.round(((totalWaitSec / waitCount) / 60.0) * 10.0) / 10.0 : 0.0;
+            result.add(new AdminDtos.ServiceStatResponse(sId, s.getName(), total, completed, avgWaitMins));
+        }
+        return result;
+    }
+
+    public List<AdminDtos.CustomerResponse> getAllCustomers() {
+        List<CustomerEntity> list = customerRepository.findAll();
+        List<AdminDtos.CustomerResponse> resp = new ArrayList<>();
+        for (CustomerEntity c : list) {
+            resp.add(new AdminDtos.CustomerResponse(
+                    c.getId(),
+                    c.getFullName(),
+                    c.getPhone(),
+                    c.getEmail(),
+                    c.getCreatedAt(),
+                    null
+            ));
+        }
         return resp;
     }
 

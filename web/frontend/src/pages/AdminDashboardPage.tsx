@@ -62,6 +62,7 @@ export const AdminDashboardPage: React.FC = () => {
   // Loading & Error States
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [panelErrors, setPanelErrors] = useState<Record<string, string | null>>({});
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   // Modals State
@@ -81,17 +82,19 @@ export const AdminDashboardPage: React.FC = () => {
   const fetchAllData = async () => {
     setLoading(true);
     setError(null);
+    const newErrors: Record<string, string | null> = {};
+
     try {
       const [
-        sumData,
-        hourData,
-        srvStatData,
-        srvData,
-        cntData,
-        stfData,
-        custData,
-        audData
-      ] = await Promise.all([
+        sumRes,
+        hourRes,
+        srvStatRes,
+        srvRes,
+        cntRes,
+        stfRes,
+        custRes,
+        audRes
+      ] = await Promise.allSettled([
         api.getAnalyticsSummary(),
         api.getHourlyStats(),
         api.getServiceStats(),
@@ -102,14 +105,31 @@ export const AdminDashboardPage: React.FC = () => {
         api.getAuditLogs()
       ]);
 
-      setSummary(sumData);
-      setHourlyStats(hourData);
-      setServiceStats(srvStatData);
-      setServices(srvData);
-      setCounters(cntData);
-      setStaffList(stfData);
-      setCustomers(custData);
-      setAuditLogs(audData);
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value);
+      else newErrors.analytics = getErrorMessage(sumRes.reason);
+
+      if (hourRes.status === 'fulfilled') setHourlyStats(hourRes.value);
+      else newErrors.hourly = getErrorMessage(hourRes.reason);
+
+      if (srvStatRes.status === 'fulfilled') setServiceStats(srvStatRes.value);
+      else newErrors.servicesStat = getErrorMessage(srvStatRes.reason);
+
+      if (srvRes.status === 'fulfilled') setServices(srvRes.value);
+      else newErrors.services = getErrorMessage(srvRes.reason);
+
+      if (cntRes.status === 'fulfilled') setCounters(cntRes.value);
+      else newErrors.counters = getErrorMessage(cntRes.reason);
+
+      if (stfRes.status === 'fulfilled') setStaffList(stfRes.value);
+      else newErrors.staff = getErrorMessage(stfRes.reason);
+
+      if (custRes.status === 'fulfilled') setCustomers(custRes.value);
+      else newErrors.customers = getErrorMessage(custRes.reason);
+
+      if (audRes.status === 'fulfilled') setAuditLogs(audRes.value);
+      else newErrors.audit = getErrorMessage(audRes.reason);
+
+      setPanelErrors(newErrors);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -186,9 +206,9 @@ export const AdminDashboardPage: React.FC = () => {
 
   const filteredLogs = auditLogs.filter(
     (l) =>
-      l.action.toLowerCase().includes(auditSearch.toLowerCase()) ||
-      l.username.toLowerCase().includes(auditSearch.toLowerCase()) ||
-      l.details.toLowerCase().includes(auditSearch.toLowerCase())
+      (l.action || '').toLowerCase().includes(auditSearch.toLowerCase()) ||
+      (l.username || '').toLowerCase().includes(auditSearch.toLowerCase()) ||
+      (l.details || '').toLowerCase().includes(auditSearch.toLowerCase())
   );
 
   return (
@@ -259,6 +279,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 1. ANALYTICS & CHARTS TAB */}
       {activeTab === 'analytics' && (
         <div className="space-y-8">
+          {(panelErrors.analytics || panelErrors.hourly || panelErrors.servicesStat) && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.analytics || panelErrors.hourly || panelErrors.servicesStat}
+            </div>
+          )}
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl border border-slate-200 dark:border-slate-700/80 shadow-xs">
@@ -365,6 +390,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 2. SERVICES TAB */}
       {activeTab === 'services' && (
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-200 dark:border-slate-700/80 shadow-md space-y-4">
+          {panelErrors.services && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.services}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-base text-slate-900 dark:text-white">Department Services</h3>
             <button
@@ -427,6 +457,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 3. COUNTERS TAB */}
       {activeTab === 'counters' && (
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-200 dark:border-slate-700/80 shadow-md space-y-4">
+          {panelErrors.counters && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.counters}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-base text-slate-900 dark:text-white">Counter Desks</h3>
             <button
@@ -489,6 +524,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 4. STAFF ACCOUNTS TAB */}
       {activeTab === 'staff' && (
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-200 dark:border-slate-700/80 shadow-md space-y-4">
+          {panelErrors.staff && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.staff}
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-base text-slate-900 dark:text-white">Staff User Accounts</h3>
             <button
@@ -531,6 +571,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 5. CUSTOMERS DIRECTORY TAB */}
       {activeTab === 'customers' && (
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-200 dark:border-slate-700/80 shadow-md space-y-4">
+          {panelErrors.customers && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.customers}
+            </div>
+          )}
           <h3 className="font-bold text-base text-slate-900 dark:text-white">Registered Customer Directory</h3>
           <p className="text-xs text-slate-500">Historical directory of customer profiles and total tickets booked</p>
 
@@ -560,6 +605,11 @@ export const AdminDashboardPage: React.FC = () => {
       {/* 6. AUDIT TRAIL TAB */}
       {activeTab === 'audit' && (
         <div className="bg-white dark:bg-slate-800 rounded-3xl p-6 border border-slate-200 dark:border-slate-700/80 shadow-md space-y-4">
+          {panelErrors.audit && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold">
+              {panelErrors.audit}
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="font-bold text-base text-slate-900 dark:text-white">Security &amp; Operational Audit Trail</h3>

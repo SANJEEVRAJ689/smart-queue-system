@@ -19,6 +19,7 @@ import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -37,7 +38,7 @@ public class StaffService {
     private final AuditLogRepository auditLogRepository;
     private final WebSocketService webSocketService;
 
-    @Value("${app.starvation_threshold_minutes:30}")
+    @Value("${app.queue.promotion-minutes:${app.starvation_threshold_minutes:30}}")
     private int starvationThresholdMinutes;
 
     private final Map<Integer, Boolean> autoCallMap = new ConcurrentHashMap<>();
@@ -112,7 +113,7 @@ public class StaffService {
                         return Optional.empty();
                     }
 
-                    // 2. Active token check: if already has CALLED or SERVING token, return it harmlessly
+                    // 2. Active token check: if already has CALLED or SERVING token, ensure counter matches and return it harmlessly
                     String checkActiveSql = "SELECT id FROM tokens WHERE counter_id = ? AND status IN ('CALLED', 'SERVING') LIMIT 1 FOR UPDATE";
                     Integer activeTokenId = null;
                     try (PreparedStatement ps = conn.prepareStatement(checkActiveSql)) {
@@ -125,28 +126,38 @@ public class StaffService {
                     }
 
                     if (activeTokenId != null) {
+                        String syncCounterSql = "UPDATE counters SET status = 'BUSY', current_token_id = ? WHERE id = ?";
+                        try (PreparedStatement ps = conn.prepareStatement(syncCounterSql)) {
+                            ps.setInt(1, activeTokenId);
+                            ps.setInt(2, counterId);
+                            ps.executeUpdate();
+                        }
                         conn.commit();
+                        webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
                         return tokenRepository.findById(activeTokenId).map(this::mapToStaffTokenResponse);
                     }
 
-                    // 3. Selection rule: EMERGENCY -> SENIOR -> (NORMAL waited >= threshold) -> NORMAL, oldest first
+                    // 3. Selection rule: Transferred to this counter first, then EMERGENCY -> SENIOR -> starvation -> NORMAL
                     String selectWaitingSql =
                             "SELECT id FROM tokens " +
-                            "WHERE service_id = ? AND status = 'WAITING' " +
+                            "WHERE ((counter_id = ?) OR (service_id = ? AND counter_id IS NULL)) AND status = 'WAITING' " +
                             "ORDER BY " +
                             "  CASE " +
-                            "    WHEN priority = 'EMERGENCY' THEN 0 " +
-                            "    WHEN priority = 'SENIOR' THEN 1 " +
-                            "    WHEN priority = 'NORMAL' AND created_at <= DATE_SUB(NOW(), INTERVAL ? MINUTE) THEN 1 " +
-                            "    ELSE 2 " +
+                            "    WHEN counter_id = ? THEN 0 " +
+                            "    WHEN priority = 'EMERGENCY' THEN 1 " +
+                            "    WHEN priority = 'SENIOR' THEN 2 " +
+                            "    WHEN priority = 'NORMAL' AND created_at <= DATE_SUB(NOW(), INTERVAL ? MINUTE) THEN 2 " +
+                            "    ELSE 3 " +
                             "  END ASC, " +
                             "  created_at ASC " +
                             "LIMIT 1 FOR UPDATE SKIP LOCKED";
 
                     int claimedId = -1;
                     try (PreparedStatement ps = conn.prepareStatement(selectWaitingSql)) {
-                        ps.setInt(1, serviceId);
-                        ps.setInt(2, starvationThresholdMinutes);
+                        ps.setInt(1, counterId);
+                        ps.setInt(2, serviceId);
+                        ps.setInt(3, counterId);
+                        ps.setInt(4, starvationThresholdMinutes);
                         try (ResultSet rs = ps.executeQuery()) {
                             if (rs.next()) {
                                 claimedId = rs.getInt("id");
@@ -185,9 +196,16 @@ public class StaffService {
 
                     conn.commit();
 
+                    final int finalServiceId = serviceId;
                     webSocketService.notifyQueueUpdated(serviceId);
+                    webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
                     Optional<TokenEntity> claimed = tokenRepository.findById(claimedId);
-                    claimed.ifPresent(t -> webSocketService.notifyTokenUpdated(t.getTrackingCode(), mapToStaffTokenResponse(t)));
+                    claimed.ifPresent(t -> {
+                        webSocketService.notifyTokenUpdated(t.getTrackingCode(), mapToStaffTokenResponse(t));
+                        if (t.getServiceId() != null && t.getServiceId() != finalServiceId) {
+                            webSocketService.notifyQueueUpdated(t.getServiceId());
+                        }
+                    });
                     return claimed.map(this::mapToStaffTokenResponse);
 
                 } catch (SQLException ex) {
@@ -221,8 +239,17 @@ public class StaffService {
         token.setStartedAt(Instant.now());
         TokenEntity saved = tokenRepository.save(token);
 
+        if (token.getCounterId() != null) {
+            counterRepository.findById(token.getCounterId()).ifPresent(c -> {
+                c.setStatus("BUSY");
+                c.setCurrentTokenId(tokenId);
+                counterRepository.save(c);
+            });
+        }
+
         tokenEventRepository.save(new TokenEventEntity(tokenId, "CALLED", "SERVING", staffUserId, token.getCounterId()));
         webSocketService.notifyQueueUpdated(token.getServiceId());
+        webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
         webSocketService.notifyTokenUpdated(token.getTrackingCode(), mapToStaffTokenResponse(saved));
 
         return mapToStaffTokenResponse(saved);
@@ -233,20 +260,24 @@ public class StaffService {
         TokenEntity token = tokenRepository.findById(tokenId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Token not found."));
 
-        if (!"SERVING".equals(token.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token must be in SERVING state to complete.");
+        if (!"SERVING".equals(token.getStatus()) && !"CALLED".equals(token.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token must be in CALLED or SERVING state to complete.");
         }
 
+        String prevStatus = token.getStatus();
         Instant now = Instant.now();
         token.setStatus("COMPLETED");
         token.setCompletedAt(now);
         if (token.getStartedAt() != null) {
             long duration = Duration.between(token.getStartedAt(), now).getSeconds();
             token.setDurationSeconds((int) Math.max(0, duration));
+        } else if (token.getCalledAt() != null) {
+            long duration = Duration.between(token.getCalledAt(), now).getSeconds();
+            token.setDurationSeconds((int) Math.max(0, duration));
         }
         TokenEntity saved = tokenRepository.save(token);
 
-        tokenEventRepository.save(new TokenEventEntity(tokenId, "SERVING", "COMPLETED", staffUserId, counterId));
+        tokenEventRepository.save(new TokenEventEntity(tokenId, prevStatus, "COMPLETED", staffUserId, counterId));
 
         // Reset Counter to OPEN and clear current_token_id
         counterRepository.findById(counterId).ifPresent(c -> {
@@ -256,6 +287,7 @@ public class StaffService {
         });
 
         webSocketService.notifyQueueUpdated(token.getServiceId());
+        webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
         webSocketService.notifyTokenUpdated(token.getTrackingCode(), mapToStaffTokenResponse(saved));
 
         checkAndTriggerAutoCall(counterId);
@@ -286,6 +318,7 @@ public class StaffService {
         });
 
         webSocketService.notifyQueueUpdated(token.getServiceId());
+        webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
         webSocketService.notifyTokenUpdated(token.getTrackingCode(), mapToStaffTokenResponse(saved));
 
         checkAndTriggerAutoCall(counterId);
@@ -297,8 +330,8 @@ public class StaffService {
         TokenEntity token = tokenRepository.findById(tokenId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Token not found."));
 
-        if (!"SKIPPED".equals(token.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only SKIPPED tokens can be recalled.");
+        if (!"SKIPPED".equals(token.getStatus()) && !"CALLED".equals(token.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only CALLED or SKIPPED tokens can be recalled.");
         }
 
         if (token.getRecallCount() != null && token.getRecallCount() > 0) {
@@ -306,43 +339,100 @@ public class StaffService {
                     String.format("Token %s has already been recalled once. Maximum recall limit reached.", token.getTokenNo()));
         }
 
-        token.setStatus("WAITING");
         token.setRecallCount((token.getRecallCount() != null ? token.getRecallCount() : 0) + 1);
-        token.setCounterId(null);
-        token.setCalledAt(null);
-        token.setStartedAt(null);
-        token.setCompletedAt(null);
-        token.setCreatedAt(Instant.now()); // Re-enter at back of queue
+
+        if ("SKIPPED".equals(token.getStatus())) {
+            token.setStatus("CALLED");
+            token.setCounterId(counterId);
+            token.setCalledAt(Instant.now());
+            counterRepository.findById(counterId).ifPresent(c -> {
+                c.setStatus("BUSY");
+                c.setCurrentTokenId(tokenId);
+                counterRepository.save(c);
+            });
+        }
 
         TokenEntity saved = tokenRepository.save(token);
 
-        tokenEventRepository.save(new TokenEventEntity(tokenId, "SKIPPED", "WAITING", staffUserId, counterId));
+        tokenEventRepository.save(new TokenEventEntity(tokenId, token.getStatus(), token.getStatus(), staffUserId, counterId));
         webSocketService.notifyQueueUpdated(token.getServiceId());
+        webSocketService.notifyDisplayBoard(Map.of("event", "RECALL", "tokenId", tokenId, "tokenNo", token.getTokenNo(), "counterId", counterId));
+        webSocketService.notifyTokenUpdated(token.getTrackingCode(), mapToStaffTokenResponse(saved));
 
         return mapToStaffTokenResponse(saved);
     }
 
     @Transactional
-    public StaffTokenResponse transferToken(int tokenId, int targetServiceId, Integer staffUserId) {
+    public StaffTokenResponse transferToken(int tokenId, Integer targetServiceId, Integer targetCounterId, Integer sourceCounterId, Integer staffUserId) {
         TokenEntity token = tokenRepository.findById(tokenId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Token not found."));
 
-        ServiceEntity targetService = serviceRepository.findById(targetServiceId)
-                .filter(s -> Boolean.TRUE.equals(s.getActive()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target service not found."));
+        if ("COMPLETED".equals(token.getStatus()) || "CANCELLED".equals(token.getStatus())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot transfer completed or cancelled token.");
+        }
+
+        // Determine effective source counter
+        Integer effectiveSourceCounterId = sourceCounterId != null ? sourceCounterId : token.getCounterId();
+
+        // Validate counter rules
+        if (targetCounterId != null) {
+            if (effectiveSourceCounterId != null && targetCounterId.equals(effectiveSourceCounterId)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot transfer to the same counter.");
+            }
+
+            CounterEntity targetCounter = counterRepository.findById(targetCounterId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Target counter not found."));
+
+            if ("CLOSED".equalsIgnoreCase(targetCounter.getStatus())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot transfer to a closed counter.");
+            }
+
+            targetServiceId = targetCounter.getServiceId();
+        } else if (targetServiceId != null) {
+            ServiceEntity targetService = serviceRepository.findById(targetServiceId)
+                    .filter(s -> Boolean.TRUE.equals(s.getActive()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target service not found or inactive."));
+
+            List<CounterEntity> serviceCounters = counterRepository.findByServiceId(targetServiceId);
+            if (!serviceCounters.isEmpty() && serviceCounters.stream().allMatch(c -> "CLOSED".equalsIgnoreCase(c.getStatus()))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot transfer to a closed counter.");
+            }
+        } else {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Target counter or service must be specified.");
+        }
 
         int oldServiceId = token.getServiceId();
-        token.setServiceId(targetServiceId);
+
+        // Free source counter if this token was active on it
+        if (effectiveSourceCounterId != null) {
+            counterRepository.findById(effectiveSourceCounterId).ifPresent(c -> {
+                c.setCurrentTokenId(null);
+                c.setStatus("OPEN");
+                counterRepository.save(c);
+            });
+            checkAndTriggerAutoCall(effectiveSourceCounterId);
+        }
+
+        // Keep token number, move to target counter's queue as WAITING, clear serving/complete fields
+        if (targetServiceId != null) {
+            token.setServiceId(targetServiceId);
+        }
         token.setStatus("WAITING");
-        token.setCounterId(null);
+        token.setCounterId(targetCounterId);
         token.setCalledAt(null);
         token.setStartedAt(null);
+        token.setCompletedAt(null);
+        token.setDurationSeconds(null);
 
         TokenEntity saved = tokenRepository.save(token);
-        tokenEventRepository.save(new TokenEventEntity(tokenId, "TRANSFER", "WAITING", staffUserId, null));
+        tokenEventRepository.save(new TokenEventEntity(tokenId, "TRANSFER", "WAITING", staffUserId, targetCounterId));
 
         webSocketService.notifyQueueUpdated(oldServiceId);
-        webSocketService.notifyQueueUpdated(targetServiceId);
+        if (targetServiceId != null && targetServiceId != oldServiceId) {
+            webSocketService.notifyQueueUpdated(targetServiceId);
+        }
+        webSocketService.notifyDisplayBoard(Map.of("event", "DISPLAY_REFRESH"));
+        webSocketService.notifyTokenUpdated(token.getTrackingCode(), mapToStaffTokenResponse(saved));
 
         return mapToStaffTokenResponse(saved);
     }
@@ -366,12 +456,29 @@ public class StaffService {
         return true;
     }
 
-    public List<StaffTokenResponse> getWaitingQueue(Integer serviceId) {
-        List<TokenEntity> tokens = serviceId != null ?
-                tokenRepository.findWaitingTokensForService(serviceId) :
-                tokenRepository.findByQueueDateOrderByCreatedAtDesc(LocalDate.now());
+    public List<StaffTokenResponse> getWaitingQueue(Integer serviceId, Integer counterId) {
+        List<TokenEntity> tokens;
+        if (counterId != null) {
+            Integer effectiveServiceId = serviceId;
+            if (effectiveServiceId == null) {
+                effectiveServiceId = counterRepository.findById(counterId).map(CounterEntity::getServiceId).orElse(null);
+            }
+            if (effectiveServiceId != null) {
+                tokens = tokenRepository.findWaitingTokensForCounter(counterId, effectiveServiceId);
+            } else {
+                tokens = tokenRepository.findWaitingTokensForService(serviceId);
+            }
+        } else if (serviceId != null) {
+            tokens = tokenRepository.findWaitingTokensForService(serviceId);
+        } else {
+            tokens = tokenRepository.findByQueueDateOrderByCreatedAtDesc(LocalDate.now(ZoneId.of("Asia/Kolkata")));
+        }
 
         return tokens.stream().map(this::mapToStaffTokenResponse).toList();
+    }
+
+    public List<StaffTokenResponse> getWaitingQueue(Integer serviceId) {
+        return getWaitingQueue(serviceId, null);
     }
 
     public List<StaffTokenResponse> getRecentHistory() {

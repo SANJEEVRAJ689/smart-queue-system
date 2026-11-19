@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api, getErrorMessage } from '../services/api';
-import { PublicStats } from '../types';
+import { PublicStats, Service, PublicIssuedToken } from '../types';
 import { wsService } from '../services/websocket';
 import {
   Users,
@@ -16,39 +16,126 @@ import {
   Edit2,
   Check,
   Radio,
-  Printer
+  Printer,
+  BellRing,
+  RotateCcw,
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { LoadingState, ErrorState } from '../components/common/StateFeedback';
+
+const ACTIVE_TOKEN_STORAGE_KEY = 'sq_active_token';
 
 export const LandingPage: React.FC = () => {
   const [stats, setStats] = useState<PublicStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Editable headline feature
+  // Departments for dispenser
+  const [departments, setDepartments] = useState<Service[]>([]);
+  const [selectedDeptId, setSelectedDeptId] = useState<number>(1);
+  const [customerName, setCustomerName] = useState<string>('');
+
+  // Active Real Ticket State
+  const [activeToken, setActiveToken] = useState<PublicIssuedToken | null>(() => {
+    try {
+      const saved = localStorage.getItem(ACTIVE_TOKEN_STORAGE_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [ticketPrinted, setTicketPrinted] = useState<boolean>(() => {
+    return !!localStorage.getItem(ACTIVE_TOKEN_STORAGE_KEY);
+  });
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [dispenserError, setDispenserError] = useState<string | null>(null);
+
+  // Editable headline
   const [headline, setHeadline] = useState<string>(() => {
     return localStorage.getItem('sq_headline') || 'Smart Queue and Token Management System';
   });
   const [isEditingHeadline, setIsEditingHeadline] = useState<boolean>(false);
   const [tempHeadline, setTempHeadline] = useState<string>(headline);
 
-  // Printed ticket animation simulation on load
-  const [printedTokenNo, setPrintedTokenNo] = useState<string>('TKT-042');
-  const [ticketPrinted, setTicketPrinted] = useState<boolean>(false);
-
+  // Load departments
   useEffect(() => {
-    // Generate a random preview token on load
-    const randNum = Math.floor(100 + Math.random() * 900);
-    setPrintedTokenNo(`A-${randNum}`);
-
-    // Trigger print animation after 300ms
-    const timer = setTimeout(() => {
-      setTicketPrinted(true);
-    }, 300);
-
-    return () => clearTimeout(timer);
+    api.getPublicDepartments()
+      .then((depts) => {
+        if (depts && depts.length > 0) {
+          setDepartments(depts);
+          setSelectedDeptId(depts[0].id);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load departments:', err);
+      });
   }, []);
 
+  // Sync / verify saved active ticket on mount
+  useEffect(() => {
+    if (activeToken?.trackingCode) {
+      api.getPublicTokenStatus(activeToken.trackingCode)
+        .then((updated) => {
+          if (updated.status === 'COMPLETED' || updated.status === 'SKIPPED' || updated.status === 'CANCELLED') {
+            localStorage.removeItem(ACTIVE_TOKEN_STORAGE_KEY);
+            setActiveToken(null);
+            setTicketPrinted(false);
+          } else {
+            setActiveToken(updated);
+            localStorage.setItem(ACTIVE_TOKEN_STORAGE_KEY, JSON.stringify(updated));
+            setTicketPrinted(true);
+          }
+        })
+        .catch(() => {
+          // If not found or error, leave as-is or clear
+        });
+    }
+  }, []);
+
+  // STOMP & polling sync for active token
+  useEffect(() => {
+    if (!activeToken?.trackingCode) return;
+
+    const trackingCode = activeToken.trackingCode;
+
+    const refreshTicketStatus = async () => {
+      try {
+        const updated = await api.getPublicTokenStatus(trackingCode);
+        if (updated.status === 'COMPLETED' || updated.status === 'SKIPPED' || updated.status === 'CANCELLED') {
+          localStorage.removeItem(ACTIVE_TOKEN_STORAGE_KEY);
+          setActiveToken(null);
+          setTicketPrinted(false);
+        } else {
+          setActiveToken(updated);
+          localStorage.setItem(ACTIVE_TOKEN_STORAGE_KEY, JSON.stringify(updated));
+        }
+      } catch (e) {
+        console.warn('Failed to poll ticket status', e);
+      }
+    };
+
+    // 5-second polling fallback
+    const interval = setInterval(refreshTicketStatus, 5000);
+
+    // Live STOMP subscription for this token
+    const unsubToken = wsService.subscribe(`/topic/token/${trackingCode}`, (msg) => {
+      refreshTicketStatus();
+    });
+
+    const unsubDisplay = wsService.subscribe('/topic/display', () => {
+      refreshTicketStatus();
+    });
+
+    return () => {
+      clearInterval(interval);
+      unsubToken();
+      unsubDisplay();
+    };
+  }, [activeToken?.trackingCode]);
+
+  // Load public statistics
   const fetchStats = async () => {
     try {
       const data = await api.getPublicStats();
@@ -63,10 +150,7 @@ export const LandingPage: React.FC = () => {
 
   useEffect(() => {
     fetchStats();
-    // Poll stats every 10s as fallback
     const interval = setInterval(fetchStats, 10000);
-
-    // Subscribe to STOMP display topic for instant updates
     const unsubscribe = wsService.subscribe('/topic/display', () => {
       fetchStats();
     });
@@ -77,11 +161,71 @@ export const LandingPage: React.FC = () => {
     };
   }, []);
 
+  // Handle Take a Digital Token
+  const handleTakeToken = async () => {
+    setDispenserError(null);
+
+    // 1 Active Token Per Device Rule
+    if (activeToken && (activeToken.status === 'WAITING' || activeToken.status === 'CALLED')) {
+      setDispenserError(`You already have an active ticket (${activeToken.tokenNo}). Finish or cancel it before taking a new one.`);
+      return;
+    }
+
+    setIsPrinting(true);
+    setTicketPrinted(false);
+
+    try {
+      const tokenResp = await api.issuePublicToken(selectedDeptId, customerName || undefined);
+      setActiveToken(tokenResp);
+      localStorage.setItem(ACTIVE_TOKEN_STORAGE_KEY, JSON.stringify(tokenResp));
+
+      // Trigger printing animation
+      setTimeout(() => {
+        setTicketPrinted(true);
+        setIsPrinting(false);
+      }, 350);
+
+      // Play soft printing sound feedback
+      try {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(440, ctx.currentTime);
+          gain.gain.setValueAtTime(0.08, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          osc.stop(ctx.currentTime + 0.3);
+        }
+      } catch {}
+
+      fetchStats();
+    } catch (err) {
+      setIsPrinting(false);
+      setDispenserError(getErrorMessage(err));
+    }
+  };
+
+  // Release/Cancel current ticket
+  const handleReleaseTicket = () => {
+    localStorage.removeItem(ACTIVE_TOKEN_STORAGE_KEY);
+    setActiveToken(null);
+    setTicketPrinted(false);
+    setDispenserError(null);
+  };
+
   const saveHeadline = () => {
     setHeadline(tempHeadline);
     localStorage.setItem('sq_headline', tempHeadline);
     setIsEditingHeadline(false);
   };
+
+  const isCalled = activeToken?.status === 'CALLED';
+  const isServing = activeToken?.status === 'SERVING';
 
   return (
     <div className="min-h-screen flex flex-col space-y-12 pb-16">
@@ -164,15 +308,16 @@ export const LandingPage: React.FC = () => {
 
             {/* Quick Actions */}
             <div className="flex flex-wrap gap-4 pt-2">
-              <Link
-                to="/customer"
-                className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-500/25 hover:shadow-blue-500/35 hover:-translate-y-0.5 transition-all"
+              <button
+                onClick={handleTakeToken}
+                disabled={isPrinting}
+                className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm shadow-lg shadow-blue-500/25 hover:shadow-blue-500/35 hover:-translate-y-0.5 transition-all disabled:opacity-50"
                 data-testid="cta-get-token"
               >
-                <Users className="w-4 h-4" />
-                Take a Digital Token
+                <Printer className="w-4 h-4" />
+                {isPrinting ? 'Printing Ticket...' : activeToken ? 'View My Active Token' : 'Take a Digital Token'}
                 <ArrowRight className="w-4 h-4" />
-              </Link>
+              </button>
 
               <Link
                 to="/display"
@@ -182,45 +327,151 @@ export const LandingPage: React.FC = () => {
                 Live Waiting Hall Board
               </Link>
             </div>
+
+            {dispenserError && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-center justify-between">
+                <span>{dispenserError}</span>
+                {activeToken && (
+                  <button
+                    onClick={handleReleaseTicket}
+                    className="ml-3 underline font-bold hover:text-amber-900 dark:hover:text-amber-100"
+                  >
+                    Dismiss Old Ticket
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Right Column: Physical "Take a Number" Ticket Dispenser Mockup */}
+          {/* Right Column: Physical "Take a Number" Ticket Dispenser with Real Live Ticket */}
           <div className="lg:col-span-5 flex justify-center">
-            <div className="w-full max-w-xs relative flex flex-col items-center">
+            <div className="w-full max-w-sm relative flex flex-col items-center">
               {/* Dispenser Machine Box */}
               <div className="w-full bg-linear-to-b from-slate-800 to-slate-900 border-2 border-slate-700 rounded-3xl p-5 shadow-2xl relative z-20 text-center text-white">
                 <div className="w-12 h-1.5 bg-slate-600 rounded-full mx-auto mb-3"></div>
                 <div className="text-[10px] font-black uppercase tracking-widest text-blue-400">Automatic Dispenser</div>
-                <div className="text-sm font-black mt-0.5">PRESS OR SCAN FOR TOKEN</div>
-                
+                <div className="text-sm font-black mt-0.5">SELECT DEPARTMENT &amp; DISPENSE</div>
+
+                {/* Department Selector inside Dispenser */}
+                <div className="mt-3 space-y-2 text-left">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                    Service Department
+                  </label>
+                  <select
+                    value={selectedDeptId}
+                    onChange={(e) => setSelectedDeptId(Number(e.target.value))}
+                    disabled={isPrinting || (!!activeToken && activeToken.status === 'WAITING')}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-semibold focus:outline-none focus:border-blue-500"
+                    data-testid="dispenser-department-select"
+                  >
+                    {departments.length > 0 ? (
+                      departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.prefix})
+                        </option>
+                      ))
+                    ) : (
+                      <>
+                        <option value={1}>Admissions &amp; Registration (AD)</option>
+                        <option value={2}>Financial Aid &amp; Billing (FA)</option>
+                        <option value={3}>Library &amp; Study Rooms (LB)</option>
+                      </>
+                    )}
+                  </select>
+
+                  <div className="pt-1">
+                    <button
+                      onClick={handleTakeToken}
+                      disabled={isPrinting || (!!activeToken && (activeToken.status === 'WAITING' || activeToken.status === 'CALLED'))}
+                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-black text-xs uppercase tracking-wider shadow-md shadow-blue-600/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="dispenser-print-btn"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      {isPrinting ? 'Printing...' : activeToken ? 'Ticket Active In Pocket' : 'Press For Token'}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Dispenser Slot with glowing slit */}
-                <div className="w-48 h-3.5 bg-black rounded-full mx-auto mt-4 border border-slate-700 shadow-inner flex items-center justify-center overflow-hidden">
-                  <div className="w-24 h-0.5 bg-blue-500/80 blur-xs"></div>
+                <div className="w-56 h-3 bg-black rounded-full mx-auto mt-4 border border-slate-700 shadow-inner flex items-center justify-center overflow-hidden">
+                  <div className="w-32 h-0.5 bg-blue-500/80 blur-xs"></div>
                 </div>
               </div>
 
               {/* Animated Ticket sliding out from slot */}
-              <div 
-                className={`w-64 bg-white text-slate-900 rounded-b-2xl shadow-xl border-x-2 border-b-2 border-slate-200 overflow-hidden -mt-2 transition-all duration-1000 ease-out z-10 ${
-                  ticketPrinted ? 'translate-y-0 opacity-100' : '-translate-y-12 opacity-0'
+              <div
+                className={`w-72 bg-white text-slate-900 rounded-b-2xl shadow-2xl border-x-2 border-b-2 border-slate-200 overflow-hidden -mt-2 transition-all duration-700 ease-out z-10 ${
+                  ticketPrinted && activeToken ? 'translate-y-0 opacity-100' : '-translate-y-16 opacity-0 pointer-events-none'
                 }`}
               >
-                <div className="border-b-2 border-dashed border-slate-300 py-1 bg-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider text-center">
-                  Official Admission Ticket
-                </div>
-                <div className="p-4 text-center space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-slate-400">Current Next Ticket</span>
-                  <div className="text-4xl font-mono font-black text-blue-600 tracking-tight" data-testid="dispenser-token-number">
-                    {printedTokenNo}
+                {/* Called Alert Banner */}
+                {isCalled && (
+                  <div className="bg-emerald-600 text-white p-2.5 text-center font-black text-xs uppercase tracking-wider animate-pulse flex items-center justify-center gap-1.5 shadow-inner">
+                    <BellRing className="w-4 h-4 animate-bounce" />
+                    YOUR TURN: GO TO {activeToken?.counterName || `COUNTER ${activeToken?.counterId || 'DESK'}`}!
                   </div>
-                  <div className="text-xs font-semibold text-slate-600">Admissions &amp; Registration</div>
+                )}
+
+                {/* Serving Banner */}
+                {isServing && (
+                  <div className="bg-blue-600 text-white p-2 text-center font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-inner">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    NOW SERVING AT {activeToken?.counterName || 'DESK'}
+                  </div>
+                )}
+
+                <div className="border-b-2 border-dashed border-slate-300 py-1 bg-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider text-center">
+                  Official Queue Ticket
+                </div>
+
+                <div className="p-4 text-center space-y-2">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">
+                    {isCalled ? 'Now Summoned' : 'Your Ticket Number'}
+                  </span>
+                  <div
+                    className={`text-5xl font-mono font-black tracking-tight ${
+                      isCalled ? 'text-emerald-600 scale-105 transition-transform' : 'text-blue-600'
+                    }`}
+                    data-testid="dispenser-token-number"
+                  >
+                    {activeToken?.tokenNo || '---'}
+                  </div>
+                  <div className="text-xs font-bold text-slate-700">
+                    {activeToken?.serviceName || 'Department'}
+                  </div>
+
+                  {/* Real Position & Estimated Wait */}
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-slate-600">
+                    <div className="bg-slate-50 rounded-lg p-1.5 text-center">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Position</span>
+                      <span className="text-sm font-black font-mono text-slate-800">
+                        {isCalled ? 'NEXT' : `#${activeToken?.position ?? 1}`}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 rounded-lg p-1.5 text-center">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">Est. Wait</span>
+                      <span className="text-sm font-black font-mono text-slate-800">
+                        {isCalled ? 'NOW' : `~${activeToken?.estimatedWait ?? 5}m`}
+                      </span>
+                    </div>
+                  </div>
+
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between text-[10px] text-slate-400 font-mono">
                     <span>{new Date().toLocaleDateString()}</span>
-                    <span>READY</span>
+                    <span className="font-bold uppercase text-blue-600">{activeToken?.status || 'WAITING'}</span>
                   </div>
                 </div>
-                <div className="bg-blue-600 text-white text-[11px] font-bold py-1.5 text-center flex items-center justify-center gap-1">
-                  <Printer className="w-3 h-3" /> Auto-Generated on Load
+
+                {/* Ticket Footer Action */}
+                <div className="bg-slate-100 px-3 py-1.5 border-t border-slate-200 flex items-center justify-between text-[10px]">
+                  <span className="text-slate-500 font-mono">Live Synced</span>
+                  <button
+                    onClick={handleReleaseTicket}
+                    className="text-red-500 font-bold hover:underline flex items-center gap-1"
+                    title="Release and take a new ticket"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Done / Reset
+                  </button>
                 </div>
               </div>
             </div>
@@ -304,25 +555,18 @@ export const LandingPage: React.FC = () => {
                 <Users className="w-7 h-7" />
               </div>
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                  Public Guest Portal
-                </span>
-                <h3 className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  Customer &amp; Kiosk
-                </h3>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Customer Portal</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                  Book a token instantly for any department, check queue positions, view estimated wait times, and track your ticket live on your device.
+                  Join a department line directly from your phone, check real-time queue position, and track wait times.
                 </p>
               </div>
             </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs font-bold text-blue-600 dark:text-blue-400">
-              <span>Book / Track Ticket</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            <div className="pt-6 flex items-center text-xs font-bold text-blue-600 dark:text-blue-400 gap-1.5 group-hover:translate-x-1 transition-transform">
+              Open Customer App <ArrowRight className="w-4 h-4" />
             </div>
           </Link>
 
-          {/* 2. Staff Card (Green) */}
+          {/* 2. Staff Desk Station Card (Emerald) */}
           <Link
             to="/staff/login"
             className="group relative bg-white dark:bg-slate-800 rounded-3xl p-7 border-2 border-emerald-200 dark:border-emerald-900/60 hover:border-emerald-500 dark:hover:border-emerald-400 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col justify-between"
@@ -333,25 +577,18 @@ export const LandingPage: React.FC = () => {
                 <Briefcase className="w-7 h-7" />
               </div>
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                  Desk Station
-                </span>
-                <h3 className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  Staff Counter Desk
-                </h3>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Staff Desk Station</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                  Select your counter, call next tokens in strict priority order, start serving with real-time session duration timers, complete, skip, or recall customers.
+                  Manage assigned desks, call next priority customers, control serve timers, transfer, or skip no-shows.
                 </p>
               </div>
             </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs font-bold text-emerald-600 dark:text-emerald-400">
-              <span>Staff Login (staff1)</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            <div className="pt-6 flex items-center text-xs font-bold text-emerald-600 dark:text-emerald-400 gap-1.5 group-hover:translate-x-1 transition-transform">
+              Staff Desk Login <ArrowRight className="w-4 h-4" />
             </div>
           </Link>
 
-          {/* 3. Admin Card (Purple) */}
+          {/* 3. Admin Command Center Card (Purple) */}
           <Link
             to="/admin/login"
             className="group relative bg-white dark:bg-slate-800 rounded-3xl p-7 border-2 border-purple-200 dark:border-purple-900/60 hover:border-purple-500 dark:hover:border-purple-400 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col justify-between"
@@ -362,21 +599,14 @@ export const LandingPage: React.FC = () => {
                 <ShieldCheck className="w-7 h-7" />
               </div>
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400">
-                  Management &amp; Analytics
-                </span>
-                <h3 className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  Executive Admin Portal
-                </h3>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Admin Command</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                  Analyze real-time service KPIs and hourly charts, configure departments and counters, manage staff user accounts, inspect audit logs, and export CSV reports.
+                  Real-time analytics, hourly congestion charts, staff accounts, desks, and complete audit trail export.
                 </p>
               </div>
             </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 dark:border-slate-700/60 flex items-center justify-between text-xs font-bold text-purple-600 dark:text-purple-400">
-              <span>Admin Login (admin)</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            <div className="pt-6 flex items-center text-xs font-bold text-purple-600 dark:text-purple-400 gap-1.5 group-hover:translate-x-1 transition-transform">
+              Admin Console Login <ArrowRight className="w-4 h-4" />
             </div>
           </Link>
         </div>

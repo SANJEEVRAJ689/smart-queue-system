@@ -37,6 +37,17 @@ public interface TokenRepository extends JpaRepository<TokenEntity, Integer> {
            "  t.createdAt ASC")
     List<TokenEntity> findWaitingTokensForService(@Param("serviceId") Integer serviceId);
 
+    @Query("SELECT t FROM TokenEntity t WHERE ((t.counterId = :counterId) OR (t.serviceId = :serviceId AND t.counterId IS NULL)) AND t.status = 'WAITING' " +
+           "ORDER BY " +
+           "  CASE " +
+           "    WHEN t.counterId = :counterId THEN 0 " +
+           "    WHEN t.priority = 'EMERGENCY' THEN 1 " +
+           "    WHEN t.priority = 'SENIOR' THEN 2 " +
+           "    ELSE 3 " +
+           "  END ASC, " +
+           "  t.createdAt ASC")
+    List<TokenEntity> findWaitingTokensForCounter(@Param("counterId") Integer counterId, @Param("serviceId") Integer serviceId);
+
     @Query("SELECT t FROM TokenEntity t WHERE t.status IN ('CALLED', 'SERVING')")
     List<TokenEntity> findCurrentlyServingTokens();
 

@@ -13,8 +13,11 @@ import {
   ServiceStat,
   AuditLogItem,
   CustomerRecord,
-  AuthUser
+  AuthUser,
+  PublicIssuedToken
 } from '../types';
+
+export const TOKEN_KEY = 'sq_token';
 
 export const apiClient = axios.create({
   baseURL: '/api',
@@ -23,6 +26,70 @@ export const apiClient = axios.create({
     'Content-Type': 'application/json'
   }
 });
+
+// Attach Authorization Bearer token from localStorage
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Refresh on 401 retry queue
+let isRefreshing = false;
+let failedQueue: Array<{ resolve: (token: string) => void; reject: (err: any) => void }> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else if (token) {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/')) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`;
+            return apiClient(originalRequest);
+          })
+          .catch((err) => Promise.reject(err));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const refreshRes = await axios.post('/api/auth/refresh', {}, { withCredentials: true });
+        const newToken = refreshRes.data?.token;
+        if (newToken) {
+          localStorage.setItem(TOKEN_KEY, newToken);
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          processQueue(null, newToken);
+          return apiClient(originalRequest);
+        }
+      } catch (refreshErr) {
+        processQueue(refreshErr, null);
+        localStorage.removeItem(TOKEN_KEY);
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Friendly error extractor
 export function getErrorMessage(error: unknown): string {
@@ -39,13 +106,25 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export const api = {
-  // Public Display & Landing
+  // Public Display & Landing & Digital Dispenser
   getPublicStats: async (): Promise<PublicStats> => {
     const res = await apiClient.get<PublicStats>('/display/stats');
     return res.data;
   },
   getDisplayBoard: async (): Promise<DisplayBoardData> => {
     const res = await apiClient.get<DisplayBoardData>('/display/board');
+    return res.data;
+  },
+  getPublicDepartments: async (): Promise<Service[]> => {
+    const res = await apiClient.get<Service[]>('/public/departments');
+    return res.data;
+  },
+  issuePublicToken: async (departmentId: number, customerName?: string): Promise<PublicIssuedToken> => {
+    const res = await apiClient.post<PublicIssuedToken>('/public/tokens', { departmentId, customerName });
+    return res.data;
+  },
+  getPublicTokenStatus: async (trackingCode: string): Promise<PublicIssuedToken> => {
+    const res = await apiClient.get<PublicIssuedToken>(`/public/tokens/${trackingCode}`);
     return res.data;
   },
 
@@ -73,15 +152,25 @@ export const api = {
 
   // Auth APIs
   staffLogin: async (username: string, password: string): Promise<AuthUser> => {
-    const res = await apiClient.post<AuthUser>('/auth/staff/login', { username, password });
+    const res = await apiClient.post<AuthUser & { token?: string }>('/auth/staff/login', { username, password });
+    if (res.data?.token) {
+      localStorage.setItem(TOKEN_KEY, res.data.token);
+    }
     return res.data;
   },
   adminLogin: async (username: string, password: string): Promise<AuthUser> => {
-    const res = await apiClient.post<AuthUser>('/auth/admin/login', { username, password });
+    const res = await apiClient.post<AuthUser & { token?: string }>('/auth/admin/login', { username, password });
+    if (res.data?.token) {
+      localStorage.setItem(TOKEN_KEY, res.data.token);
+    }
     return res.data;
   },
   logout: async (): Promise<void> => {
-    await apiClient.post('/auth/logout');
+    try {
+      await apiClient.post('/auth/logout');
+    } finally {
+      localStorage.removeItem(TOKEN_KEY);
+    }
   },
   getCurrentUser: async (): Promise<AuthUser> => {
     const res = await apiClient.get<AuthUser>('/auth/me');
@@ -97,8 +186,12 @@ export const api = {
     const res = await apiClient.post(`/staff/counters/${counterId}/status`, { status });
     return res.data;
   },
-  getStaffQueue: async (serviceId?: number): Promise<QueueToken[]> => {
-    const url = serviceId ? `/staff/queue?serviceId=${serviceId}` : '/staff/queue';
+  getStaffQueue: async (serviceId?: number, counterId?: number): Promise<QueueToken[]> => {
+    let url = '/staff/queue';
+    const params = new URLSearchParams();
+    if (serviceId) params.append('serviceId', serviceId.toString());
+    if (counterId) params.append('counterId', counterId.toString());
+    if (params.toString()) url += `?${params.toString()}`;
     const res = await apiClient.get<QueueToken[]>(url);
     return res.data;
   },
@@ -126,8 +219,12 @@ export const api = {
     const res = await apiClient.post<QueueToken>(url);
     return res.data;
   },
-  transferToken: async (tokenId: number, targetServiceId: number): Promise<QueueToken> => {
-    const res = await apiClient.post<QueueToken>(`/staff/tokens/${tokenId}/transfer?targetServiceId=${targetServiceId}`);
+  transferToken: async (
+    tokenId: number,
+    req: { targetServiceId?: number; targetCounterId?: number; sourceCounterId?: number } | number
+  ): Promise<QueueToken> => {
+    const payload = typeof req === 'number' ? { targetServiceId: req } : req;
+    const res = await apiClient.post<QueueToken>(`/staff/tokens/${tokenId}/transfer`, payload);
     return res.data;
   },
   toggleAutoCall: async (counterId: number, enabled: boolean): Promise<{ success: boolean; autoCallEnabled: boolean }> => {

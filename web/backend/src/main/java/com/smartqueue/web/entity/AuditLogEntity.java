@@ -130,4 +130,16 @@ public class AuditLogEntity {
     public void setTimestamp(Instant timestamp) {
         this.timestamp = timestamp;
     }
+
+    public String getCreatedAt() {
+        return timestamp != null ? timestamp.toString() : "";
+    }
+
+    public String getUsername() {
+        return userId != null ? "User #" + userId : "SYSTEM";
+    }
+
+    public String getDetails() {
+        return metadata != null && !metadata.isBlank() ? metadata : (eventType != null ? eventType : (action != null ? action : ""));
+    }
 }

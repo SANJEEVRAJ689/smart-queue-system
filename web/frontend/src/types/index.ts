@@ -161,7 +161,19 @@ export interface CustomerRecord {
 }
 
 export interface AuthUser {
+  token?: string;
   username: string;
   name: string;
   role: UserRole;
+}
+
+export interface PublicIssuedToken {
+  tokenNo: string;
+  position: number;
+  estimatedWait: number;
+  status: TokenStatus;
+  trackingCode: string;
+  serviceName: string;
+  counterId?: number;
+  counterName?: string;
 }

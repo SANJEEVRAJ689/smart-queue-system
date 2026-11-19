@@ -73,10 +73,28 @@ public class AdminController {
         return ResponseEntity.ok(adminService.createStaff(request));
     }
 
-    @GetMapping("/analytics")
+    @GetMapping({"/analytics", "/analytics/summary"})
     @Operation(summary = "Get Real-time Analytics", description = "Returns today's KPIs, hourly distribution, average wait, and service durations.")
     public ResponseEntity<AnalyticsSummaryResponse> getAnalytics() {
         return ResponseEntity.ok(adminService.getAnalyticsSummary());
+    }
+
+    @GetMapping("/analytics/hourly")
+    @Operation(summary = "Hourly Token Stats", description = "Returns today's hourly token traffic distribution.")
+    public ResponseEntity<List<com.smartqueue.web.dto.AdminDtos.HourlyStatResponse>> getHourlyStats() {
+        return ResponseEntity.ok(adminService.getHourlyStats());
+    }
+
+    @GetMapping("/analytics/services")
+    @Operation(summary = "Service Breakdown Stats", description = "Returns today's volume and wait metrics per service.")
+    public ResponseEntity<List<com.smartqueue.web.dto.AdminDtos.ServiceStatResponse>> getServiceStats() {
+        return ResponseEntity.ok(adminService.getServiceStats());
+    }
+
+    @GetMapping("/customers")
+    @Operation(summary = "List Customers", description = "Returns all registered customers.")
+    public ResponseEntity<List<com.smartqueue.web.dto.AdminDtos.CustomerResponse>> getCustomers() {
+        return ResponseEntity.ok(adminService.getAllCustomers());
     }
 
     @GetMapping(value = "/export/csv", produces = "text/csv")
@@ -89,7 +107,7 @@ public class AdminController {
                 .body(csv);
     }
 
-    @GetMapping("/audit-log")
+    @GetMapping({"/audit-logs", "/audit-log"})
     @Operation(summary = "View Audit Log", description = "Returns the latest 100 system audit records.")
     public ResponseEntity<List<AuditLogEntity>> getAuditLogs() {
         return ResponseEntity.ok(adminService.getRecentAuditLogs());
